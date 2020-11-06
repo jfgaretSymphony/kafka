@@ -189,7 +189,7 @@ object ReplicaManager {
 class ReplicaManager(val config: KafkaConfig,
                      metrics: Metrics,
                      time: Time,
-                     val zkClient: KafkaZkClient,
+                     val zkClient: Option[KafkaZkClient], // must be supplied with IBP < KAFKA_2_7_IV2
                      scheduler: Scheduler,
                      val logManager: LogManager,
                      val isShuttingDown: AtomicBoolean,
@@ -207,7 +207,7 @@ class ReplicaManager(val config: KafkaConfig,
   def this(config: KafkaConfig,
            metrics: Metrics,
            time: Time,
-           zkClient: KafkaZkClient,
+           zkClient: Option[KafkaZkClient],
            scheduler: Scheduler,
            logManager: LogManager,
            isShuttingDown: AtomicBoolean,
@@ -216,7 +216,7 @@ class ReplicaManager(val config: KafkaConfig,
            metadataCache: MetadataCache,
            logDirFailureChannel: LogDirFailureChannel,
            alterIsrManager: AlterIsrManager,
-           threadNamePrefix: Option[String] = None) = {
+           threadNamePrefix: Option[String]) = {
     this(config, metrics, time, zkClient, scheduler, logManager, isShuttingDown,
       quotaManagers, brokerTopicStats, metadataCache, logDirFailureChannel,
       DelayedOperationPurgatory[DelayedProduce](
@@ -231,6 +231,23 @@ class ReplicaManager(val config: KafkaConfig,
       DelayedOperationPurgatory[DelayedElectLeader](
         purgatoryName = "ElectLeader", brokerId = config.brokerId),
       threadNamePrefix, alterIsrManager)
+  }
+
+  def this(config: KafkaConfig,
+           metrics: Metrics,
+           time: Time,
+           zkClient: KafkaZkClient,
+           scheduler: Scheduler,
+           logManager: LogManager,
+           isShuttingDown: AtomicBoolean,
+           quotaManagers: QuotaManagers,
+           brokerTopicStats: BrokerTopicStats,
+           metadataCache: MetadataCache,
+           logDirFailureChannel: LogDirFailureChannel,
+           alterIsrManager: AlterIsrManager,
+           threadNamePrefix: Option[String] = None) = {
+    this(config, metrics, time, Some(zkClient), scheduler, logManager, isShuttingDown,
+      quotaManagers, brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager, threadNamePrefix)
   }
 
   /* epoch of the controller that last changed the leader */
@@ -312,7 +329,7 @@ class ReplicaManager(val config: KafkaConfig,
       if (isrChangeSet.nonEmpty &&
         (lastIsrChangeMs.get() + isrChangeNotificationConfig.lingerMs < now ||
           lastIsrPropagationMs.get() + isrChangeNotificationConfig.maxDelayMs < now)) {
-        zkClient.propagateIsrChanges(isrChangeSet)
+        zkClient.foreach(_.propagateIsrChanges(isrChangeSet))
         isrChangeSet.clear()
         lastIsrPropagationMs.set(now)
       }
@@ -342,6 +359,9 @@ class ReplicaManager(val config: KafkaConfig,
     scheduler.schedule("isr-expiration", maybeShrinkIsr _, period = config.replicaLagTimeMaxMs / 2, unit = TimeUnit.MILLISECONDS)
     // If using AlterIsr, we don't need the znode ISR propagation
     if (config.interBrokerProtocolVersion < KAFKA_2_7_IV2) {
+      if (zkClient.isEmpty) {
+        throw new IllegalStateException(s"Must supply zkClient with IBP < KAFKA_2_7_IV2: ${config.interBrokerProtocolVersion}")
+      }
       scheduler.schedule("isr-change-propagation", maybePropagateIsrChanges _,
         period = isrChangeNotificationConfig.checkIntervalMs, unit = TimeUnit.MILLISECONDS)
     } else {
@@ -1823,8 +1843,13 @@ class ReplicaManager(val config: KafkaConfig,
     }
     logManager.handleLogDirFailure(dir)
 
-    if (sendZkNotification)
-      zkClient.propagateLogDirEvent(localBrokerId)
+    if (sendZkNotification) {
+      if (zkClient.isEmpty) {
+        warn("Unable to propagate log dir failure via Zookeeper")
+      } else {
+        zkClient.get.propagateLogDirEvent(localBrokerId)
+      }
+    }
     warn(s"Stopped serving replicas in dir $dir")
   }
 

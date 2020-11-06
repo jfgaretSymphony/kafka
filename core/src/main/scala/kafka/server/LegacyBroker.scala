@@ -33,7 +33,6 @@ import kafka.log.LogManager
 import kafka.metrics.{KafkaMetricsReporter, KafkaYammerMetrics}
 import kafka.network.SocketServer
 import kafka.security.CredentialProvider
-import kafka.server.metadata.BrokerMetadataListener
 import kafka.utils._
 import kafka.zk.{BrokerInfo, KafkaZkClient}
 import org.apache.kafka.clients.{ApiVersions, ClientDnsLookup, ManualMetadataUpdater, NetworkClient, NetworkClientUtils}
@@ -126,8 +125,6 @@ class LegacyBroker(val config: KafkaConfig,
   var transactionCoordinator: TransactionCoordinator = null
 
   var kafkaController: KafkaController = null
-
-  var brokerMetadataListener: BrokerMetadataListener = null
 
   var brokerToControllerChannelManager: BrokerToControllerChannelManager = null
 
@@ -283,13 +280,6 @@ class LegacyBroker(val config: KafkaConfig,
         // Hardcode Time.SYSTEM for now as some Streams tests fail otherwise, it would be good to fix the underlying issue
         transactionCoordinator = TransactionCoordinator(config, replicaManager, new KafkaScheduler(threads = 1, threadNamePrefix = "transaction-log-manager-"), zkClient, metrics, metadataCache, Time.SYSTEM)
         transactionCoordinator.startup()
-
-        brokerMetadataListener = new BrokerMetadataListener(
-          config, time,
-          BrokerMetadataListener.defaultProcessors(
-            config, _clusterId, metadataCache, groupCoordinator, quotaManagers, replicaManager, transactionCoordinator,
-            logManager))
-        brokerMetadataListener.start()
 
         /* Get the authorizer and initialize it if one is specified.*/
         authorizer = config.authorizer
@@ -611,9 +601,6 @@ class LegacyBroker(val config: KafkaConfig,
       if (shutdownLatch.getCount > 0 && isShuttingDown.compareAndSet(false, true)) {
         CoreUtils.swallow(controlledShutdown(), this)
         brokerState.set(BrokerState.SHUTTING_DOWN)
-
-        if (brokerMetadataListener != null)
-          brokerMetadataListener.close()
 
         if (dynamicConfigManager != null)
           CoreUtils.swallow(dynamicConfigManager.shutdown(), this)

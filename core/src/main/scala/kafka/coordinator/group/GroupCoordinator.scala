@@ -1333,6 +1333,34 @@ object GroupCoordinator {
     apply(config, zkClient, replicaManager, heartbeatPurgatory, joinPurgatory, time, metrics)
   }
 
+  def apply(config: KafkaConfig,
+            groupMetadataTopicPartitionCountFunc: () => Int,
+            replicaManager: ReplicaManager,
+            time: Time,
+            metrics: Metrics): GroupCoordinator = {
+    val heartbeatPurgatory = DelayedOperationPurgatory[DelayedHeartbeat]("Heartbeat", config.brokerId)
+    val joinPurgatory = DelayedOperationPurgatory[DelayedJoin]("Rebalance", config.brokerId)
+    apply(config, groupMetadataTopicPartitionCountFunc, replicaManager, heartbeatPurgatory, joinPurgatory, time, metrics)
+  }
+
+  def apply(config: KafkaConfig,
+            groupMetadataTopicPartitionCountFunc: () => Int,
+            replicaManager: ReplicaManager,
+            heartbeatPurgatory: DelayedOperationPurgatory[DelayedHeartbeat],
+            joinPurgatory: DelayedOperationPurgatory[DelayedJoin],
+            time: Time,
+            metrics: Metrics): GroupCoordinator = {
+    val offsetConfig = this.offsetConfig(config)
+    val groupConfig = GroupConfig(groupMinSessionTimeoutMs = config.groupMinSessionTimeoutMs,
+      groupMaxSessionTimeoutMs = config.groupMaxSessionTimeoutMs,
+      groupMaxSize = config.groupMaxSize,
+      groupInitialRebalanceDelayMs = config.groupInitialRebalanceDelay)
+
+    val groupMetadataManager = new GroupMetadataManager(config.brokerId, config.interBrokerProtocolVersion,
+      offsetConfig, replicaManager, groupMetadataTopicPartitionCountFunc, time, metrics)
+    new GroupCoordinator(config.brokerId, groupConfig, offsetConfig, groupMetadataManager, heartbeatPurgatory, joinPurgatory, time, metrics)
+  }
+
   private[group] def offsetConfig(config: KafkaConfig) = OffsetConfig(
     maxMetadataSize = config.offsetMetadataMaxSize,
     loadBufferSize = config.offsetsLoadBufferSize,

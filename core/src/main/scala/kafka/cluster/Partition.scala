@@ -107,10 +107,27 @@ object Partition extends KafkaMetricsGroup {
   def apply(topicPartition: TopicPartition,
             time: Time,
             replicaManager: ReplicaManager): Partition = {
-    val zkIsrBackingStore = new ZkPartitionStateStore(
-      topicPartition,
-      replicaManager.zkClient,
-      replicaManager)
+    val backingStore: PartitionStateStore = if (replicaManager.zkClient.isDefined) {
+      new ZkPartitionStateStore(
+        topicPartition,
+        replicaManager.zkClient.get,
+        replicaManager)
+    } else {
+      new PartitionStateStore {
+        val noZkClientErrorMsg = "No zkClient: ISR changes  must be done via KIP-497 AlterIsrRequest (should not happen)"
+        override def fetchTopicConfig(): Properties = {
+          new Properties() // TODO: get from processed metadata log
+        }
+
+        override def shrinkIsr(controllerEpoch: Int, leaderAndIsr: LeaderAndIsr): Option[Int] = {
+          throw new IllegalStateException(noZkClientErrorMsg)
+        }
+
+        override def expandIsr(controllerEpoch: Int, leaderAndIsr: LeaderAndIsr): Option[Int] = {
+          throw new IllegalStateException(noZkClientErrorMsg)
+        }
+      }
+    }
 
     val delayedOperations = new DelayedOperations(
       topicPartition,
@@ -123,7 +140,7 @@ object Partition extends KafkaMetricsGroup {
       interBrokerProtocolVersion = replicaManager.config.interBrokerProtocolVersion,
       localBrokerId = replicaManager.config.brokerId,
       time = time,
-      stateStore = zkIsrBackingStore,
+      stateStore = backingStore,
       delayedOperations = delayedOperations,
       metadataCache = replicaManager.metadataCache,
       logManager = replicaManager.logManager,

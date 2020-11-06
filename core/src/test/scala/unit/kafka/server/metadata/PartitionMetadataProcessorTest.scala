@@ -199,12 +199,13 @@ class PartitionMetadataProcessorTest {
     val processor = createSimpleProcessor()
     val initialBrokerEpoch = -1
     assertEquals(initialBrokerEpoch, processor.brokerEpoch)
+    val broker = mock(classOf[Broker])
     val brokerEpoch = 1
-    processor.process(RegisterBrokerEvent(brokerEpoch))
+    processor.process(RegisterBrokerEvent(broker, brokerEpoch))
     assertEquals(brokerEpoch, processor.brokerEpoch)
     assertEquals(brokerEpoch, processor.MetadataMgr().getCurrentBrokerEpochs().get(0).get)
     // test idempotency
-    processor.process(RegisterBrokerEvent(brokerEpoch))
+    processor.process(RegisterBrokerEvent(broker, brokerEpoch))
     assertEquals(brokerEpoch, processor.brokerEpoch)
     assertEquals(brokerEpoch, processor.MetadataMgr().getCurrentBrokerEpochs().get(0).get)
   }
@@ -212,15 +213,16 @@ class PartitionMetadataProcessorTest {
   @Test
   def testDisallowChangeBrokerEpoch(): Unit = {
     val processor = createSimpleProcessor()
+    val broker = mock(classOf[Broker])
     val brokerEpoch = 1
-    processor.process(RegisterBrokerEvent(brokerEpoch))
-    assertThrows[IllegalArgumentException] { processor.process(RegisterBrokerEvent(brokerEpoch + 1)) }
+    processor.process(RegisterBrokerEvent(broker, brokerEpoch))
+    assertThrows[IllegalArgumentException] { processor.process(RegisterBrokerEvent(broker, brokerEpoch + 1)) }
   }
 
   @Test(expected = classOf[IllegalArgumentException])
   def testDisallowNegativeBrokerEpoch(): Unit = {
     val processor = createSimpleProcessor()
-    processor.process(RegisterBrokerEvent(-1))
+    processor.process(RegisterBrokerEvent(mock(classOf[Broker]), -1))
   }
 
   @Test
