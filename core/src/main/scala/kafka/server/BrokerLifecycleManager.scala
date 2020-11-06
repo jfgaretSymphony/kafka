@@ -129,6 +129,7 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
    *
    */
   override def start(listeners: ListenerCollection, features: FeatureCollection, recoveringFromUncleanShutdown: Boolean): Unit = {
+    info("Starting")
     // FIXME: handle starting with RECOVERING_FROM_UNCLEAN_SHUTDOWN rather than REGISTERING
 
     // FIXME: Handle broker registration inconsistencies where the controller successfully registers the broker but the
@@ -178,6 +179,7 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
     Await.result(promise.future, Duration(config.registrationLeaseTimeoutMs.longValue(), MILLISECONDS))
 
     // Broker registration successful; Schedule heartbeats
+    info("Scheduling heartbeats")
     schedulerTask = Some(scheduler.schedule(
       "send-broker-heartbeat",
       processHeartbeatRequests,
@@ -206,11 +208,13 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
    *
    */
   override def stop(): Unit = {
+    info("Stopping")
     // TODO: BrokerShutdown state change
     schedulerTask foreach {
       task => task.cancel(true)
     }
     requestQueue.clear()
+    info("Stopped")
   }
 
   /**
