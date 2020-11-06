@@ -117,7 +117,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   type FetchResponseStats = Map[TopicPartition, RecordConversionStats]
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
-  val adminZkClient = new AdminZkClient(zkClient)
+  val adminZkClient = if (zkClient == null) null else new AdminZkClient(zkClient)
   private val alterAclsPurgatory = new DelayedFuturePurgatory(purgatoryName = "AlterAcls", brokerId = config.brokerId)
 
   def close(): Unit = {
@@ -220,6 +220,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     val leaderAndIsrRequest = request.body[LeaderAndIsrRequest]
 
     apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    if (controller == null) {
+      throw new ClusterAuthorizationException(s"Request $request should never happen in KIP-500 mode.")
+    }
     if (isBrokerEpochStale(leaderAndIsrRequest.brokerEpoch)) {
       // When the broker restarts very quickly, it is possible for this broker to receive request intended
       // for its previous generation so the broker should skip the stale request.
@@ -238,6 +241,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     // stop serving data to clients for the topic being deleted
     val stopReplicaRequest = request.body[StopReplicaRequest]
     apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    if (controller == null) {
+      throw new ClusterAuthorizationException(s"Request $request should never happen in KIP-500 mode.")
+    }
     if (isBrokerEpochStale(stopReplicaRequest.brokerEpoch)) {
       // When the broker restarts very quickly, it is possible for this broker to receive request intended
       // for its previous generation so the broker should skip the stale request.
@@ -293,6 +299,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     val updateMetadataRequest = request.body[UpdateMetadataRequest]
 
     apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    if (controller == null) {
+      throw new ClusterAuthorizationException(s"Request $request should never happen in KIP-500 mode.")
+    }
     if (isBrokerEpochStale(updateMetadataRequest.brokerEpoch)) {
       // When the broker restarts very quickly, it is possible for this broker to receive request intended
       // for its previous generation so the broker should skip the stale request.
@@ -335,6 +344,9 @@ class KafkaApis(val requestChannel: RequestChannel,
     // stop serving data to clients for the topic being deleted
     val controlledShutdownRequest = request.body[ControlledShutdownRequest]
     apisUtils.authorizeClusterOperation(request, CLUSTER_ACTION)
+    if (controller == null) {
+      throw new ClusterAuthorizationException(s"Request $request should never happen in KIP-500 mode.")
+    }
 
     def controlledShutdownCallback(controlledShutdownResult: Try[Set[TopicPartition]]): Unit = {
       val response = controlledShutdownResult match {
@@ -418,6 +430,9 @@ class KafkaApis(val requestChannel: RequestChannel,
       if (authorizedTopicRequestInfo.isEmpty)
         sendResponseCallback(Map.empty)
       else if (header.apiVersion == 0) {
+        if (zkClient == null) {
+          throw new UnsupportedOperationException("Storing offsets in ZooKeeper is unsupported in KIP-500 mode")
+        }
         // for version 0 always store offsets to ZK
         val responseInfo = authorizedTopicRequestInfo.map {
           case (topicPartition, partitionData) =>
@@ -1085,6 +1100,9 @@ class KafkaApis(val requestChannel: RequestChannel,
                           replicationFactor: Int,
                           properties: util.Properties = new util.Properties()): MetadataResponseTopic = {
     try {
+      if (adminZkClient == null) {
+        throw new UnsupportedOperationException("Auto topic creation is not yet supported in KIP-500 mode")
+      }
       adminZkClient.createTopic(topic, numPartitions, replicationFactor, properties, RackAwareMode.Safe)
       info("Auto creation of topic %s with %d partitions and replication factor %d is successful"
         .format(topic, numPartitions, replicationFactor))
@@ -1282,6 +1300,9 @@ class KafkaApis(val requestChannel: RequestChannel,
               offsetFetchRequest.partitions.asScala)
 
             // version 0 reads offsets from ZK
+            if (zkClient == null) {
+              throw new UnsupportedOperationException("Reading offsets from ZooKeeper is unsupported in KIP-500 mode")
+            }
             val authorizedPartitionData = authorizedPartitions.map { topicPartition =>
               try {
                 if (!metadataCache.contains(topicPartition))
@@ -1756,7 +1777,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     val createTopicsRequest = request.body[CreateTopicsRequest]
     val results = new CreatableTopicResultCollection(createTopicsRequest.data.topics.size)
-    if (!controller.isActive) {
+    if (controller == null || !controller.isActive) {
       createTopicsRequest.data.topics.forEach { topic =>
         results.add(new CreatableTopicResult().setName(topic.name)
           .setErrorCode(Errors.NOT_CONTROLLER.code))
@@ -1840,7 +1861,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       apisUtils.sendResponseMaybeThrottle(controllerMutationQuota, request, createResponse, onComplete = None)
     }
 
-    if (!controller.isActive) {
+    if (controller == null || !controller.isActive) {
       val result = createPartitionsRequest.data.topics.asScala.map { topic =>
         (topic.name, new ApiError(Errors.NOT_CONTROLLER, null))
       }.toMap
@@ -1890,7 +1911,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     val deleteTopicRequest = request.body[DeleteTopicsRequest]
     val results = new DeletableTopicResultCollection(deleteTopicRequest.data.topicNames.size)
     val toDelete = mutable.Set[String]()
-    if (!controller.isActive) {
+    if (controller == null || !controller.isActive) {
       deleteTopicRequest.data.topicNames.forEach { topic =>
         results.add(new DeletableTopicResult()
           .setName(topic)
@@ -2536,9 +2557,17 @@ class KafkaApis(val requestChannel: RequestChannel,
         case rt => throw new InvalidRequestException(s"Unexpected resource type $rt")
       }
     }
-    val authorizedResult = adminManager.alterConfigs(authorizedResources, alterConfigsRequest.validateOnly)
-    val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-      resource -> configsAuthorizationApiError(resource)
+    // unsupported in KIP-500 mode until forwarding is available
+    val authorizedResult: Map[ConfigResource, ApiError] = if (adminManager == null) {
+      Map.empty
+    } else {
+      adminManager.alterConfigs(authorizedResources, alterConfigsRequest.validateOnly)
+    }
+    val unauthorizedResult = if (adminManager == null) {
+      unauthorizedResources.keys.map { resource => resource -> configsAuthorizationApiError(resource) } ++
+        authorizedResources.keys.map { resource => resource -> configsAuthorizationApiError(resource) }
+    } else {
+      unauthorizedResources.keys.map { resource => resource -> configsAuthorizationApiError(resource) }
     }
     def responseCallback(requestThrottleMs: Int): AlterConfigsResponse = {
       val data = new AlterConfigsResponseData()
@@ -2557,6 +2586,9 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleAlterPartitionReassignmentsRequest(request: RequestChannel.Request): Unit = {
     apisUtils.authorizeClusterOperation(request, ALTER)
+    if (controller == null) {
+      throw new ClusterAuthorizationException(s"Request $request is not authorized in KIP-500 mode.")
+    }
     val alterPartitionReassignmentsRequest = request.body[AlterPartitionReassignmentsRequest]
 
     def sendResponseCallback(result: Either[Map[TopicPartition, ApiError], ApiError]): Unit = {
@@ -2598,6 +2630,9 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleListPartitionReassignmentsRequest(request: RequestChannel.Request): Unit = {
     apisUtils.authorizeClusterOperation(request, DESCRIBE)
+    if (controller == null) {
+      throw new ClusterAuthorizationException(s"Request $request is not authorized in KIP-500 mode.")
+    }
     val listPartitionReassignmentsRequest = request.body[ListPartitionReassignmentsRequest]
 
     def sendResponseCallback(result: Either[Map[TopicPartition, ReplicaAssignment], ApiError]): Unit = {
@@ -2671,9 +2706,17 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     }
 
-    val authorizedResult = adminManager.incrementalAlterConfigs(authorizedResources, alterConfigsRequest.data.validateOnly)
-    val unauthorizedResult = unauthorizedResources.keys.map { resource =>
-      resource -> configsAuthorizationApiError(resource)
+    // unsupported in KIP-500 mode until forwarding is available
+    val authorizedResult: Map[ConfigResource, ApiError] = if (adminManager == null) {
+      Map.empty
+    } else {
+      adminManager.incrementalAlterConfigs(authorizedResources, alterConfigsRequest.data.validateOnly)
+    }
+    val unauthorizedResult = if (adminManager == null) {
+      unauthorizedResources.keys.map { resource => resource -> configsAuthorizationApiError(resource) } ++
+        authorizedResources.keys.map { resource => resource -> configsAuthorizationApiError(resource) }
+    } else {
+      unauthorizedResources.keys.map { resource => resource -> configsAuthorizationApiError(resource) }
     }
     apisUtils.sendResponseMaybeThrottle(request, requestThrottleMs =>
       new IncrementalAlterConfigsResponse(IncrementalAlterConfigsResponse.toResponseData(requestThrottleMs,
@@ -2691,8 +2734,18 @@ class KafkaApis(val requestChannel: RequestChannel,
         case rt => throw new InvalidRequestException(s"Unexpected resource type $rt for resource ${resource.resourceName}")
       }
     }
-    val authorizedConfigs = adminManager.describeConfigs(authorizedResources.toList, describeConfigsRequest.data.includeSynonyms, describeConfigsRequest.data.includeDocumentation)
-    val unauthorizedConfigs = unauthorizedResources.map { resource =>
+    // TODO: unsupported in KIP-500 mode until we get configs from partition metadata processor
+    val authorizedConfigs: List[DescribeConfigsResponseData.DescribeConfigsResult] = if (adminManager == null) {
+      List.empty
+    } else {
+      adminManager.describeConfigs(authorizedResources.toList, describeConfigsRequest.data.includeSynonyms, describeConfigsRequest.data.includeDocumentation)
+    }
+    val resourcesToNotAuthorize = if (adminManager == null) {
+      authorizedResources ++ unauthorizedResources
+    } else {
+      unauthorizedResources
+    }
+    val unauthorizedConfigs = resourcesToNotAuthorize.map { resource =>
       val error = ConfigResource.Type.forId(resource.resourceType) match {
         case ConfigResource.Type.BROKER | ConfigResource.Type.BROKER_LOGGER => Errors.CLUSTER_AUTHORIZATION_FAILED
         case ConfigResource.Type.TOPIC => Errors.TOPIC_AUTHORIZATION_FAILED
@@ -2935,7 +2988,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       })
     }
 
-    if (!apisUtils.authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
+    if (controller == null || !apisUtils.authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
       val error = new ApiError(Errors.CLUSTER_AUTHORIZATION_FAILED, null)
       val partitionErrors: Map[TopicPartition, ApiError] =
         electionRequest.topicPartitions.iterator.map(partition => partition -> error).toMap
@@ -3019,7 +3072,8 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleDescribeClientQuotasRequest(request: RequestChannel.Request): Unit = {
     val describeClientQuotasRequest = request.body[DescribeClientQuotasRequest]
 
-    if (apisUtils.authorize(request.context, DESCRIBE_CONFIGS, CLUSTER, CLUSTER_NAME)) {
+    // unsupported in KIP-500 mode until we implement client quotas
+    if (adminManager != null && apisUtils.authorize(request.context, DESCRIBE_CONFIGS, CLUSTER, CLUSTER_NAME)) {
       val result = adminManager.describeClientQuotas(describeClientQuotasRequest.filter).map { case (quotaEntity, quotaConfigs) =>
         quotaEntity -> quotaConfigs.map { case (key, value) => key -> Double.box(value) }.asJava
       }.asJava
@@ -3034,7 +3088,8 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleAlterClientQuotasRequest(request: RequestChannel.Request): Unit = {
     val alterClientQuotasRequest = request.body[AlterClientQuotasRequest]
 
-    if (apisUtils.authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)) {
+    // unsupported in KIP-500 mode until we implement client quotas
+    if (adminManager != null && apisUtils.authorize(request.context, ALTER_CONFIGS, CLUSTER, CLUSTER_NAME)) {
       val result = adminManager.alterClientQuotas(alterClientQuotasRequest.entries().asScala.toSeq,
         alterClientQuotasRequest.validateOnly()).asJava
       apisUtils.sendResponseMaybeThrottle(request, requestThrottleMs =>
@@ -3048,7 +3103,8 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleDescribeUserScramCredentialsRequest(request: RequestChannel.Request): Unit = {
     val describeUserScramCredentialsRequest = request.body[DescribeUserScramCredentialsRequest]
 
-    if (apisUtils.authorize(request.context, DESCRIBE, CLUSTER, CLUSTER_NAME)) {
+    // unsupported in KIP-500 mode until we implement user SCRAM credentials
+    if (adminManager != null && apisUtils.authorize(request.context, DESCRIBE, CLUSTER, CLUSTER_NAME)) {
       val result = adminManager.describeUserScramCredentials(
         Option(describeUserScramCredentialsRequest.data.users).map(_.asScala.map(_.name).toList))
       apisUtils.sendResponseMaybeThrottle(request, requestThrottleMs =>
@@ -3062,7 +3118,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleAlterUserScramCredentialsRequest(request: RequestChannel.Request): Unit = {
     val alterUserScramCredentialsRequest = request.body[AlterUserScramCredentialsRequest]
 
-    if (!controller.isActive) {
+    if (controller == null || !controller.isActive) {
       apisUtils.sendResponseMaybeThrottle(request, requestThrottleMs =>
         alterUserScramCredentialsRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception))
     } else if (apisUtils.authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
@@ -3082,7 +3138,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (!apisUtils.authorize(request.context, CLUSTER_ACTION, CLUSTER, CLUSTER_NAME)) {
       apisUtils.sendResponseMaybeThrottle(request, requestThrottleMs =>
         alterIsrRequest.getErrorResponse(requestThrottleMs, Errors.CLUSTER_AUTHORIZATION_FAILED.exception))
-    } else if (!controller.isActive) {
+    } else if (controller == null || !controller.isActive) {
       apisUtils.sendResponseMaybeThrottle(request, requestThrottleMs =>
         alterIsrRequest.getErrorResponse(requestThrottleMs, Errors.NOT_CONTROLLER.exception()))
     } else {
@@ -3117,7 +3173,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     if (!apisUtils.authorize(request.context, ALTER, CLUSTER, CLUSTER_NAME)) {
       sendResponseCallback(Left(new ApiError(Errors.CLUSTER_AUTHORIZATION_FAILED)))
-    } else if (!controller.isActive) {
+    } else if (controller == null || !controller.isActive) {
       sendResponseCallback(Left(new ApiError(Errors.NOT_CONTROLLER)))
     } else if (!config.isFeatureVersioningSupported) {
       sendResponseCallback(Left(new ApiError(Errors.INVALID_REQUEST, "Feature versioning system is disabled.")))

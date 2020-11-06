@@ -25,6 +25,7 @@ import java.util.concurrent.locks.ReentrantLock
 
 import kafka.cluster.{Broker, EndPoint}
 import kafka.common.InconsistentBrokerMetadataException
+import kafka.controller.KafkaController
 import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.{ProducerIdMgr, TransactionCoordinator}
 import kafka.log.LogManager
@@ -34,6 +35,7 @@ import kafka.security.CredentialProvider
 import kafka.server.KafkaBroker.{metricsPrefix, notifyClusterListeners}
 import kafka.server.metadata.BrokerMetadataListener
 import kafka.utils.{CoreUtils, KafkaScheduler, Mx4jLoader}
+import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.feature.{Features, SupportedVersionRange}
 import org.apache.kafka.common.message.BrokerRegistrationRequestData.{FeatureCollection, Listener, ListenerCollection}
 import org.apache.kafka.common.{Endpoint, KafkaException}
@@ -266,28 +268,31 @@ class Kip500Broker(val config: KafkaConfig,
           }.toMap
       }
 
-//      val fetchManager = new FetchManager(Time.SYSTEM,
-//        new FetchSessionCache(config.maxIncrementalFetchSessionCacheSlots,
-//          KafkaBroker.MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS))
+      val fetchManager = new FetchManager(Time.SYSTEM,
+        new FetchSessionCache(config.maxIncrementalFetchSessionCacheSlots,
+          KafkaBroker.MIN_INCREMENTAL_FETCH_SESSION_EVICTION_MS))
 
       /* start processing requests */
-//      dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel,
-//        replicaManager, adminManager, groupCoordinator, transactionCoordinator,
-//        kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
-//        fetchManager, brokerTopicStats, _clusterId, time, tokenManager, brokerFeatures, featureCache)
-//
-//      dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
-//        config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix)
-//
-//      socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
-//        controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel,
-//          replicaManager, adminManager, groupCoordinator, transactionCoordinator,
-//          kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
-//          fetchManager, brokerTopicStats, _clusterId, time, tokenManager, brokerFeatures, featureCache)
-//
-//        controlPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.controlPlaneRequestChannelOpt.get, controlPlaneRequestProcessor, time,
-//          1, s"${SocketServer.ControlPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.ControlPlaneThreadPrefix)
-//      }
+      val adminManager: LegacyAdminManager = null
+      val zkClient: KafkaZkClient = null
+      val kafkaController: KafkaController = null
+      dataPlaneRequestProcessor = new KafkaApis(socketServer.dataPlaneRequestChannel,
+        replicaManager, adminManager, groupCoordinator, transactionCoordinator,
+        kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
+        fetchManager, brokerTopicStats, _clusterId, time, tokenManager, brokerFeatures, featureCache)
+
+      dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
+        config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix)
+
+      socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
+        controlPlaneRequestProcessor = new KafkaApis(controlPlaneRequestChannel,
+          replicaManager, adminManager, groupCoordinator, transactionCoordinator,
+          kafkaController, zkClient, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
+          fetchManager, brokerTopicStats, _clusterId, time, tokenManager, brokerFeatures, featureCache)
+
+        controlPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.controlPlaneRequestChannelOpt.get, controlPlaneRequestProcessor, time,
+          1, s"${SocketServer.ControlPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.ControlPlaneThreadPrefix)
+      }
 
       Mx4jLoader.maybeLoad()
 
