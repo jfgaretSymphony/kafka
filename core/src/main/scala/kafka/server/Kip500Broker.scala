@@ -19,7 +19,7 @@ package kafka.server
 
 import java.io.{File, IOException}
 import java.util
-import java.util.concurrent.{CompletableFuture, Future}
+import java.util.concurrent.CompletableFuture
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 
@@ -309,7 +309,7 @@ class Kip500Broker(val config: KafkaConfig,
     }
   }
 
-  class TemporaryProducerIdManager(brokerEpochFuture: Future[Long]) extends ProducerIdMgr {
+  class TemporaryProducerIdManager() extends ProducerIdMgr {
     val maxProducerIdsPerBrokerEpoch = 1000000
     var currentOffset = -1
     override def generateProducerId(): Long = {
@@ -318,12 +318,12 @@ class Kip500Broker(val config: KafkaConfig,
         fatal(s"Exhausted all demo/temporary producerIds as the next one will has extend past the block size of $maxProducerIdsPerBrokerEpoch")
         throw new KafkaException("Have exhausted all demo/temporary producerIds.")
       }
-      brokerEpochFuture.get() * maxProducerIdsPerBrokerEpoch + currentOffset
+      brokerMetadataListener.brokerEpochFuture().get() * maxProducerIdsPerBrokerEpoch + currentOffset
     }
   }
 
   def createTemporaryProducerIdManager(): ProducerIdMgr = {
-    new TemporaryProducerIdManager(brokerMetadataListener.brokerEpochFuture())
+    new TemporaryProducerIdManager()
   }
 
   protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {
@@ -362,9 +362,11 @@ class Kip500Broker(val config: KafkaConfig,
       // We request the heartbeat to initiate a controlled shutdown.
       info("Requesting controlled shutdown via broker heartbeat")
 
-      brokerLifecycleManager.enqueue(BrokerState.PENDING_CONTROLLED_SHUTDOWN).future.onComplete {
-        case Success(_) => info("Controlled shutdown succeeded")
-        case Failure(_) => warn("Proceeding to do an unclean shutdown as all the controlled shutdown attempts failed")
+      if (brokerLifecycleManager != null) {
+        brokerLifecycleManager.enqueue(BrokerState.PENDING_CONTROLLED_SHUTDOWN).future.onComplete {
+          case Success(_) => info("Controlled shutdown succeeded")
+          case Failure(_) => warn("Proceeding to do an unclean shutdown as all the controlled shutdown attempts failed")
+        }
       }
     }
   }
