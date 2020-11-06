@@ -18,7 +18,6 @@
 package kafka.server.metadata
 
 import com.yammer.metrics.core.{Gauge, Histogram, MetricName}
-import kafka.cluster.Broker
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
@@ -98,8 +97,7 @@ class BrokerMetadataListenerTest {
     val listener = new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(), List(processor))
     assertEquals(expectedInitialMetadataOffset, listener.currentMetadataOffset())
 
-    val broker = mock(classOf[Broker])
-    val msg0 = RegisterBrokerEvent(broker, 1)
+    val msg0 = RegisterBrokerEvent(1)
     val msg1 = FenceBrokerEvent(1)
     listener.put(msg0)
     listener.put(msg1)
@@ -147,8 +145,7 @@ class BrokerMetadataListenerTest {
     val listener = new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(), List(processor))
     val logEvent1 = MetadataLogEvent(List(mock(classOf[ApiMessage])).asJava, 1)
     val logEvent2 = MetadataLogEvent(List(mock(classOf[ApiMessage])).asJava, 2)
-    val broker = mock(classOf[Broker])
-    val registerEvent = RegisterBrokerEvent(broker, 1)
+    val registerEvent = RegisterBrokerEvent(1)
     val fenceEvent = FenceBrokerEvent(1)
 
     // add the out-of-band messages after the batches

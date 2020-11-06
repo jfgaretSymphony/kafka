@@ -19,10 +19,11 @@ package kafka.server
 
 import java.io.{File, IOException}
 import java.util
-import java.util.concurrent.CompletableFuture
+import java.util.concurrent.{CompletableFuture, Future}
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.ReentrantLock
 
+import kafka.cluster.{Broker, EndPoint}
 import kafka.common.InconsistentBrokerMetadataException
 import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.{ProducerIdMgr, TransactionCoordinator}
@@ -33,15 +34,19 @@ import kafka.security.CredentialProvider
 import kafka.server.KafkaBroker.{metricsPrefix, notifyClusterListeners}
 import kafka.server.metadata.BrokerMetadataListener
 import kafka.utils.{CoreUtils, KafkaScheduler, Mx4jLoader}
+import org.apache.kafka.common.feature.{Features, SupportedVersionRange}
 import org.apache.kafka.common.message.BrokerRegistrationRequestData.{FeatureCollection, Listener, ListenerCollection}
 import org.apache.kafka.common.{Endpoint, KafkaException}
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter}
+import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.security.scram.internals.ScramMechanism
 import org.apache.kafka.common.security.token.delegation.internals.DelegationTokenCache
 import org.apache.kafka.common.utils.{AppInfoParser, LogContext, Time}
 import org.apache.kafka.metadata.BrokerState
 import org.apache.kafka.server.authorizer.Authorizer
 
+import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, mutable}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.jdk.CollectionConverters._
@@ -121,7 +126,7 @@ class Kip500Broker(val config: KafkaConfig,
       status = to
       if (to == SHUTTING_DOWN) {
         isShuttingDown.set(true)
-      } else  if (to == SHUTDOWN) {
+      } else if (to == SHUTDOWN) {
         isShuttingDown.set(false)
         awaitShutdownCond.signalAll()
       }
@@ -140,14 +145,13 @@ class Kip500Broker(val config: KafkaConfig,
       _clusterId = loadedClusterId
       info(s"Cluster ID = ${_clusterId}")
 
-      /* generate brokerId */
       config.brokerId = loadedBrokerId
       logContext = new LogContext(s"[KafkaBroker id=${config.brokerId}] ")
       this.logIdent = logContext.logPrefix
 
       // initialize dynamic broker configs from static config. Any updates will be
-      // applied after DynamicConfigManager starts and we process the metadata log.
-      config.dynamicConfig.initialize() // Currently we don't wait for catching up on the metadata log.  TODO?
+      // applied as we process the metadata log.
+      config.dynamicConfig.initialize() // Currently we don't wait for catch-up on the metadata log.  TODO?
 
       /* start scheduler */
       kafkaScheduler = new KafkaScheduler(config.backgroundThreads)
@@ -213,7 +217,7 @@ class Kip500Broker(val config: KafkaConfig,
       /* start transaction coordinator, with a separate background thread scheduler for transaction expiration and log loading */
       // Hardcode Time.SYSTEM for now as some Streams tests fail otherwise, it would be good to fix the underlying issue
       transactionCoordinator = TransactionCoordinator(config, replicaManager, new KafkaScheduler(threads = 1, threadNamePrefix = "transaction-log-manager-"),
-        new TemporaryProducerIdManager(), getTransactionTopicPartitionCount,
+        createTemporaryProducerIdManager(), getTransactionTopicPartitionCount,
         metrics, metadataCache, Time.SYSTEM)
       transactionCoordinator.startup()
 
@@ -228,7 +232,7 @@ class Kip500Broker(val config: KafkaConfig,
       brokerMetadataListener.start()
 
       brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener, config,
-        brokerToControllerChannelManager, kafkaScheduler, time, config.brokerId, config.rack.getOrElse(null),
+        brokerToControllerChannelManager, kafkaScheduler, time, config.brokerId, config.rack.getOrElse(""),
         brokerMetadataListener.currentMetadataOffset, brokerMetadataListener.brokerEpochNow)
       val listeners = new ListenerCollection()
       config.advertisedListeners.foreach { ep =>
@@ -236,23 +240,28 @@ class Kip500Broker(val config: KafkaConfig,
           .setSecurityProtocol(ep.securityProtocol.id))
       }
       val features = new FeatureCollection()
-      // TODO: it seems that BrokerLifecycleManager immediately tries to register
-      //  and does not support startng in the RECOVERING_FROM_UNCLEAN_SHUTDOWN state
-      if (!cleanShutdown) {
-        throw new UnsupportedOperationException("RECOVERING_FROM_UNCLEAN_SHUTDOWN not supported")
-      }
-      brokerLifecycleManager.start(listeners, features)
+      brokerLifecycleManager.start(listeners, features, !cleanShutdown)
 
+      val endPoints = new ArrayBuffer[EndPoint](listeners.size())
+      listeners.iterator().forEachRemaining(listener => {
+        endPoints += new EndPoint(listener.host(), listener.port(), new ListenerName(listener.name()),
+          SecurityProtocol.forId(listener.securityProtocol()))
+      })
+      val supportedFeaturesMap = mutable.Map[String, SupportedVersionRange]()
+      features.iterator().forEachRemaining(feature => {
+        supportedFeaturesMap(feature.name()) = new SupportedVersionRange(feature.minSupportedVersion(), feature.maxSupportedVersion())
+      })
+      val broker = Broker(config.brokerId, endPoints, config.rack, Features.supportedFeatures(supportedFeaturesMap.asJava))
       /* Get the authorizer and initialize it if one is specified.*/
       authorizer = config.authorizer
       authorizer.foreach(_.configure(config.originals))
       val authorizerFutures: Map[Endpoint, CompletableFuture[Void]] = authorizer match {
         case Some(authZ) =>
-          authZ.start(brokerMetadataListener.registeredBrokerFuture().get().toServerInfo(_clusterId, config)).asScala.map { case (ep, cs) =>
+          authZ.start(broker.toServerInfo(_clusterId, config)).asScala.map { case (ep, cs) =>
             ep -> cs.toCompletableFuture
           }
         case None =>
-          brokerMetadataListener.registeredBrokerFuture().get().endPoints.map { ep =>
+          broker.endPoints.map { ep =>
             ep.toJava -> CompletableFuture.completedFuture[Void](null)
           }.toMap
       }
@@ -295,18 +304,21 @@ class Kip500Broker(val config: KafkaConfig,
     }
   }
 
-  class TemporaryProducerIdManager extends ProducerIdMgr {
-    val maxProducerIds = 1000000
-    val initialProducerId: Long = config.brokerId * maxProducerIds
-    var currentOffset = 0
+  class TemporaryProducerIdManager(brokerEpochFuture: Future[Long]) extends ProducerIdMgr {
+    val maxProducerIdsPerBrokerEpoch = 1000000
+    var currentOffset = -1
     override def generateProducerId(): Long = {
-      if (currentOffset > maxProducerIds) {
-        fatal(s"Exhausted all demo/temporary producerIds as the next one will has extend past the block size of $maxProducerIds: ${initialProducerId + maxProducerIds + 1})")
-        throw new KafkaException("Have exhausted all producerIds.")
-      }
       currentOffset = currentOffset + 1
-      initialProducerId + currentOffset
+      if (currentOffset >= maxProducerIdsPerBrokerEpoch) {
+        fatal(s"Exhausted all demo/temporary producerIds as the next one will has extend past the block size of $maxProducerIdsPerBrokerEpoch")
+        throw new KafkaException("Have exhausted all demo/temporary producerIds.")
+      }
+      brokerEpochFuture.get() * maxProducerIdsPerBrokerEpoch + currentOffset
     }
+  }
+
+  def createTemporaryProducerIdManager(): ProducerIdMgr = {
+    new TemporaryProducerIdManager(brokerMetadataListener.brokerEpochFuture())
   }
 
   protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {
@@ -332,6 +344,7 @@ class Kip500Broker(val config: KafkaConfig,
    */
   def getTransactionTopicPartitionCount(): Int = {
     // TODO: don't return a result until the broker catches up; for now, just give the configured partition count
+    // brokerMetadataListener.getTopicPartitionCount(Topic.TRANSACTION_STATE_TOPIC_NAME).getOrElse(config.transactionTopicPartitions)
     config.transactionTopicPartitions
   }
 
@@ -395,9 +408,6 @@ class Kip500Broker(val config: KafkaConfig,
       if (quotaManagers != null)
         CoreUtils.swallow(quotaManagers.shutdown(), this)
 
-      // Even though socket server is stopped much earlier, controller can generate
-      // response for controlled shutdown request. Shutdown server at the end to
-      // avoid any failures (e.g. when metrics are recorded)
       if (socketServer != null)
         CoreUtils.swallow(socketServer.shutdown(), this)
       if (metrics != null)
@@ -439,8 +449,6 @@ class Kip500Broker(val config: KafkaConfig,
   def loadClusterIdBrokerIdAndOfflineDirs: (String, Int, Seq[String]) = {
     /* load metadata */
     val (loadedBrokerMetadata, initialOfflineDirs) = getBrokerMetadataAndOfflineDirs
-
-    /* Don't validate clusterId here; that gets validated upon broker registration instead */
 
     /* check brokerId */
     val loadedBrokerId = config.brokerId // TODO: grab loadedBrokerMetadata.brokerId when available in meta.properties

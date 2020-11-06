@@ -35,7 +35,6 @@ import kafka.utils.KafkaScheduler;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.message.LeaderAndIsrRequestData.LeaderAndIsrPartitionState;
 import org.apache.kafka.common.utils.Time;
-import org.apache.kafka.metadata.BrokerState;
 import org.mockito.Mockito;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -51,6 +50,8 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 import scala.Option;
 import scala.collection.JavaConverters;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.BoxedUnit;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -59,7 +60,6 @@ import java.util.List;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 @State(Scope.Benchmark)
 @Fork(value = 1)
@@ -76,6 +76,13 @@ public class UpdateFollowerFetchStateBenchmark {
     private long nextOffset = 0;
     private LogManager logManager;
     private Partition partition;
+
+    private AbstractFunction1<Object, BoxedUnit> cleanShutdownFunc = new AbstractFunction1<Object, BoxedUnit>() {
+        @Override
+        public BoxedUnit apply(Object v1) {
+            return null;
+        }
+    };
 
     @Setup(Level.Trial)
     public void setUp() {
@@ -94,7 +101,7 @@ public class UpdateFollowerFetchStateBenchmark {
                 1000L,
                 60000,
                 scheduler,
-                new AtomicReference<BrokerState>(BrokerState.NOT_RUNNING),
+                cleanShutdownFunc,
                 brokerTopicStats,
                 logDirFailureChannel,
                 Time.SYSTEM);

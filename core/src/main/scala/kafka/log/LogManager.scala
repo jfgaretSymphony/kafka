@@ -60,7 +60,7 @@ class LogManager(logDirs: Seq[File],
                  val retentionCheckMs: Long,
                  val maxPidExpirationMs: Int,
                  scheduler: Scheduler,
-                 val cleanShutdownFunc: Boolean => Unit, // sends true if the shutdown was clean, otherwise false
+                 val cleanShutdownFunc: Boolean => Unit, // we send true if the shutdown was clean, otherwise false
                  brokerTopicStats: BrokerTopicStats,
                  logDirFailureChannel: LogDirFailureChannel,
                  time: Time) extends Logging with KafkaMetricsGroup {
@@ -1199,7 +1199,7 @@ object LogManager {
 
   def apply(config: KafkaConfig,
             initialOfflineDirs: Seq[String],
-            cleanShutdownFunc: (Boolean) => Unit, // sends true if the shutdown was clean, otherwise false,
+            cleanShutdownFunc: (Boolean) => Unit, // we send true if the shutdown was clean, otherwise false,
             kafkaScheduler: KafkaScheduler,
             time: Time,
             brokerTopicStats: BrokerTopicStats,
@@ -1210,7 +1210,7 @@ object LogManager {
   def apply(config: KafkaConfig,
             initialOfflineDirs: Seq[String],
             maybeZkClient: Option[KafkaZkClient],
-            cleanShutdownFunc: (Boolean) => Unit, // sends true if the shutdown was clean, otherwise false
+            cleanShutdownFunc: (Boolean) => Unit, // we send true if the shutdown was clean, otherwise false
             kafkaScheduler: KafkaScheduler,
             time: Time,
             brokerTopicStats: BrokerTopicStats,

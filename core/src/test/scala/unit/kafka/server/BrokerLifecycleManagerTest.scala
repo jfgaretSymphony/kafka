@@ -129,7 +129,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     // Setup mock heartbeat response
@@ -153,7 +153,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
 
     // Start
     var stateChangePromise: Promise[Unit] = null
@@ -192,7 +192,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     // Setup mock heartbeat response
@@ -222,7 +222,7 @@ class BrokerLifecycleManagerTest {
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
 
     // Start
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
 
     val pendingPromises = ListBuffer[Promise[Unit]]()
     pendingStateChanges foreach {
@@ -260,7 +260,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     // Setup mock heartbeat response
@@ -286,7 +286,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
 
     // Start
     val pendingPromises = ListBuffer[Promise[Unit]]()
@@ -338,7 +338,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     // Setup mock heartbeat response
@@ -364,7 +364,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
 
     // Schedule enqueues asynchronously
     val executor = Executors.newFixedThreadPool(2)
@@ -419,7 +419,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     // Setup mock heartbeat response
@@ -442,7 +442,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
 
     // Start
     val pendingPromises = ListBuffer[Promise[Unit]]()
@@ -498,7 +498,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     // Setup mock heartbeat response
@@ -527,7 +527,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
 
     // Register broker
     var promise = brokerLifecycleManager.enqueue(BrokerState.REGISTERING)
@@ -590,7 +590,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     // Setup mock heartbeat response
@@ -619,7 +619,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
 
     // Step 1 - Attempt broker registration, fencing and activation
     val pendingPromises = ListBuffer[Promise[Unit]]()
@@ -702,7 +702,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     EasyMock.replay(brokerToControllerChannel, brokerMetadataListener)
@@ -710,7 +710,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[AuthenticationException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
     }
 
     assert(assertion.getMessage.contains(exceptionMessage))
@@ -754,7 +754,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     EasyMock.replay(brokerToControllerChannel, brokerMetadataListener)
@@ -762,7 +762,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[UnsupportedVersionException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
     }
 
     assert(assertion.getMessage.contains(exceptionMessage))
@@ -805,7 +805,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     EasyMock.replay(brokerToControllerChannel, brokerMetadataListener)
@@ -813,7 +813,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[IOException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
     }
 
     assert(assertion.getMessage.contains("Client was disconnected"))
@@ -850,7 +850,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     EasyMock.replay(brokerToControllerChannel, brokerMetadataListener)
@@ -858,7 +858,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[IOException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
     }
 
     assert(assertion.getMessage.contains("No response found"))
@@ -901,7 +901,7 @@ class BrokerLifecycleManagerTest {
 
     val capturedMetadataEvent = EasyMock.newCapture[BrokerMetadataEvent]()
     EasyMock.expect(brokerMetadataListener.put(EasyMock.capture(capturedMetadataEvent))).andStubReturn(
-      new QueuedEvent(RegisterBrokerEvent(broker, registrationEpoch), time.nanoseconds)
+      new QueuedEvent(RegisterBrokerEvent(registrationEpoch), time.nanoseconds)
     )
 
     EasyMock.replay(brokerToControllerChannel, brokerMetadataListener)
@@ -909,7 +909,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[DuplicateBrokerRegistrationException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
     }
 
     assert(assertion.getMessage.contains(Errors.DUPLICATE_BROKER_REGISTRATION.message))

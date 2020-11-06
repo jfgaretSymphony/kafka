@@ -21,27 +21,20 @@ import java.util
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.{ConcurrentLinkedQueue, ScheduledFuture, TimeUnit}
 
-import kafka.cluster.{Broker, EndPoint}
 import org.apache.kafka.common.KafkaException
 import kafka.metrics.KafkaMetricsGroup
 import kafka.server.metadata.{BrokerMetadataListener, FenceBrokerEvent, RegisterBrokerEvent}
 import kafka.utils.{Logging, Scheduler}
 import org.apache.kafka.clients.ClientResponse
-import org.apache.kafka.common.feature.{Features, SupportedVersionRange}
 import org.apache.kafka.common.message.{BrokerHeartbeatRequestData, BrokerRegistrationRequestData}
 import org.apache.kafka.common.message.BrokerRegistrationRequestData.{FeatureCollection, ListenerCollection}
-import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.protocol.Errors
 import org.apache.kafka.common.requests.{BrokerHeartbeatRequest, BrokerHeartbeatResponse, BrokerRegistrationRequest, BrokerRegistrationResponse}
-import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Time
 import org.apache.kafka.{metadata => jmetadata}
 
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{Await, Promise}
 import scala.concurrent.duration._
-import scala.jdk.CollectionConverters._
 
 /**
  * Manages the broker lifecycle. Handles:
@@ -54,8 +47,8 @@ import scala.jdk.CollectionConverters._
  */
 trait BrokerLifecycleManager {
 
-  // Initiate broker registration and start the heartbeat scheduler loop
-  def start(listeners: ListenerCollection, features: FeatureCollection): Unit
+  // Start the heartbeat scheduler loop with either unclean shutdown recovery or broker registration as initial state
+  def start(listeners: ListenerCollection, features: FeatureCollection, recoveringFromUncleanShutdown: Boolean): Unit
 
   // Enqueue a heartbeat request to be sent to the active controller
   // Specify the target state for the broker
@@ -135,7 +128,9 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
    *         - Generic catch all for unknown/unhandled exception(s)
    *
    */
-  override def start(listeners: ListenerCollection, features: FeatureCollection): Unit = {
+  override def start(listeners: ListenerCollection, features: FeatureCollection, recoveringFromUncleanShutdown: Boolean): Unit = {
+    // FIXME: handle starting with RECOVERING_FROM_UNCLEAN_SHUTDOWN rather than REGISTERING
+
     // FIXME: Handle broker registration inconsistencies where the controller successfully registers the broker but the
     //        broker times-out/fails on the RPC. Retrying today, would lead to a DuplicateBrokerRegistrationException
     currentState = jmetadata.BrokerState.NOT_RUNNING
@@ -161,18 +156,7 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
               // TODO: Is this the correct next state?
               currentState = jmetadata.BrokerState.RECOVERING_FROM_UNCLEAN_SHUTDOWN
               // Registration success; notify the BrokerMetadataListener
-              val endPoints = new ArrayBuffer[EndPoint](listeners.size())
-              listeners.iterator().forEachRemaining(listener => {
-                endPoints += new EndPoint(listener.host(), listener.port(), new ListenerName(listener.name()),
-                  SecurityProtocol.forId(listener.securityProtocol()))
-              })
-              val supportedFeaturesMap = mutable.Map[String, SupportedVersionRange]()
-              features.iterator().forEachRemaining(feature => {
-                supportedFeaturesMap(feature.name()) = new SupportedVersionRange(feature.minSupportedVersion(), feature.maxSupportedVersion())
-              })
-              val broker = Broker(brokerID, endPoints, if (rack == null || rack.isEmpty) None else Some(rack),
-                Features.supportedFeatures(supportedFeaturesMap.asJava))
-              brokerMetadataListener.put(RegisterBrokerEvent(broker, body.brokerEpoch))
+              brokerMetadataListener.put(RegisterBrokerEvent(body.brokerEpoch))
               promise.trySuccess(())
             case _ =>
               // Unhandled error

@@ -54,7 +54,6 @@ import org.apache.kafka.common.requests.FetchResponse;
 import org.apache.kafka.common.requests.OffsetsForLeaderEpochRequest;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.metadata.BrokerState;
 import org.mockito.Mockito;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -74,6 +73,8 @@ import scala.collection.Iterator;
 import scala.collection.JavaConverters;
 import scala.compat.java8.OptionConverters;
 import scala.collection.Map;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.BoxedUnit;
 
 import java.io.File;
 import java.io.IOException;
@@ -87,7 +88,6 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 @State(Scope.Benchmark)
 @Fork(value = 1)
@@ -105,6 +105,13 @@ public class ReplicaFetcherThreadBenchmark {
     private File logDir = new File(System.getProperty("java.io.tmpdir"), UUID.randomUUID().toString());
     private KafkaScheduler scheduler = new KafkaScheduler(1, "scheduler", true);
     private Pool<TopicPartition, Partition> pool = new Pool<TopicPartition, Partition>(Option.empty());
+
+    private AbstractFunction1<Object, BoxedUnit> cleanShutdownFunc = new AbstractFunction1<Object, BoxedUnit>() {
+        @Override
+        public BoxedUnit apply(Object v1) {
+            return null;
+        }
+    };
 
     @Setup(Level.Trial)
     public void setup() throws IOException {
@@ -132,7 +139,7 @@ public class ReplicaFetcherThreadBenchmark {
                 1000L,
                 60000,
                 scheduler,
-                new AtomicReference<BrokerState>(BrokerState.NOT_RUNNING),
+                cleanShutdownFunc,
                 brokerTopicStats,
                 logDirFailureChannel,
                 Time.SYSTEM);

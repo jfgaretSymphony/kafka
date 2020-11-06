@@ -38,7 +38,6 @@ import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.SimpleRecord;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.metadata.BrokerState;
 import org.mockito.Mockito;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -54,6 +53,8 @@ import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Warmup;
 import scala.Option;
 import scala.collection.JavaConverters;
+import scala.runtime.AbstractFunction1;
+import scala.runtime.BoxedUnit;
 
 import java.io.File;
 import java.io.IOException;
@@ -67,7 +68,6 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 @State(Scope.Benchmark)
 @Fork(value = 1)
@@ -85,6 +85,13 @@ public class PartitionMakeFollowerBenchmark {
     private OffsetCheckpoints offsetCheckpoints = Mockito.mock(OffsetCheckpoints.class);
     private DelayedOperations delayedOperations  = Mockito.mock(DelayedOperations.class);
     private ExecutorService executorService = Executors.newSingleThreadExecutor();
+
+    private AbstractFunction1<Object, BoxedUnit> cleanShutdownFunc = new AbstractFunction1<Object, BoxedUnit>() {
+        @Override
+        public BoxedUnit apply(Object v1) {
+            return null;
+        }
+    };
 
     @Setup(Level.Trial)
     public void setup() throws IOException {
@@ -109,7 +116,7 @@ public class PartitionMakeFollowerBenchmark {
             1000L,
             60000,
             scheduler,
-            new AtomicReference<BrokerState>(BrokerState.NOT_RUNNING),
+            cleanShutdownFunc,
             brokerTopicStats,
             logDirFailureChannel,
             Time.SYSTEM);

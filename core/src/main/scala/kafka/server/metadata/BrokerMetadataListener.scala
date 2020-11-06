@@ -20,7 +20,6 @@ package kafka.server.metadata
 import java.util
 import java.util.concurrent.{CompletableFuture, Future, LinkedBlockingQueue, TimeUnit}
 
-import kafka.cluster.Broker
 import kafka.coordinator.group.GroupCoordinator
 import kafka.coordinator.transaction.TransactionCoordinator
 import kafka.log.LogManager
@@ -77,7 +76,7 @@ final case class MetadataLogEvent(apiMessages: util.List[ApiMessage], lastOffset
  *
  * @param brokerEpoch the epoch assigned to the broker by the active controller
  */
-final case class RegisterBrokerEvent(broker: Broker, brokerEpoch: Long) extends BrokerMetadataEvent
+final case class RegisterBrokerEvent(brokerEpoch: Long) extends BrokerMetadataEvent
 
 /**
  * A fence-broker event that occurs when either:
@@ -119,8 +118,6 @@ class BrokerMetadataListener(
     throw new IllegalArgumentException(s"Empty processors list!")
   }
 
-  private val _registeredBrokerFuture = new CompletableFuture[Broker]()
-  def registeredBrokerFuture(): Future[Broker] = _registeredBrokerFuture
   private val _brokerEpochFuture: CompletableFuture[Long] = new CompletableFuture[Long]()
   def brokerEpochFuture(): Future[Long] = _brokerEpochFuture
   // return the broker epoch or -1 if it is not yet set
@@ -156,7 +153,6 @@ class BrokerMetadataListener(
     try {
       thread.initiateShutdown()
       put(ShutdownEvent) // wake up the thread in case it is blocked on queue.take()
-      _registeredBrokerFuture.cancel(true)
       _brokerEpochFuture.cancel(true)
       thread.awaitShutdown()
     } finally {
@@ -185,7 +181,6 @@ class BrokerMetadataListener(
       event match {
         case registerBrokerEvent: RegisterBrokerEvent =>
           if (!_brokerEpochFuture.isDone) {
-            _registeredBrokerFuture.complete(registerBrokerEvent.broker)
             _brokerEpochFuture.complete(registerBrokerEvent.brokerEpoch)
           }
         case _ =>
