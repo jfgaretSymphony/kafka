@@ -68,7 +68,7 @@ class LogManager(logDirs: Seq[File],
   import LogManager._
 
   val LockFile = ".lock"
-  val InitialTaskDelayMs = 30 * 1000
+  val InitialTaskDelayMs: Int = 30 * 1000
 
   private val logCreationOrDeletionLock = new Object
   private val currentLogs = new Pool[TopicPartition, Log]()
@@ -1199,7 +1199,7 @@ object LogManager {
 
   def apply(config: KafkaConfig,
             initialOfflineDirs: Seq[String],
-            cleanShutdownFunc: (Boolean) => Unit, // we send true if the shutdown was clean, otherwise false,
+            cleanShutdownFunc: Boolean => Unit, // we send true if the shutdown was clean, otherwise false,
             kafkaScheduler: KafkaScheduler,
             time: Time,
             brokerTopicStats: BrokerTopicStats,
@@ -1210,7 +1210,7 @@ object LogManager {
   def apply(config: KafkaConfig,
             initialOfflineDirs: Seq[String],
             maybeZkClient: Option[KafkaZkClient],
-            cleanShutdownFunc: (Boolean) => Unit, // we send true if the shutdown was clean, otherwise false
+            cleanShutdownFunc: Boolean => Unit, // we send true if the shutdown was clean, otherwise false
             kafkaScheduler: KafkaScheduler,
             time: Time,
             brokerTopicStats: BrokerTopicStats,
@@ -1222,12 +1222,14 @@ object LogManager {
 
     val topicConfigs: Map[String, LogConfig] =
       if (maybeZkClient.isDefined) {
+        // do this to get rid of a spotbugs error in Scala 2.12
+        val zkClient: KafkaZkClient = maybeZkClient.iterator.next()
         // read the log configurations from zookeeper
-        val (topicConfigs, failed) = maybeZkClient.get.getLogConfigs(
-          maybeZkClient.get.getAllTopicsInCluster(),
+        val (topicConfigs, failed) = zkClient.getLogConfigs(
+          zkClient.getAllTopicsInCluster(),
           defaultProps
         )
-        if (!failed.isEmpty) throw failed.head._2
+        if (failed.nonEmpty) throw failed.head._2
         topicConfigs
       } else {
         Map.empty

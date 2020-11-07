@@ -329,7 +329,9 @@ class Kip500Broker(val config: KafkaConfig,
   protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {
     val alterIsrManager = new AlterIsrManagerImpl(brokerToControllerChannelManager, kafkaScheduler,
       time, config.brokerId, () => brokerMetadataListener.brokerEpochFuture().get())
-    new ReplicaManager(config, metrics, time, None, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
+    // explicitly declare to eliminate spotbugs error in Scala 2.12
+    val zkClient: Option[KafkaZkClient] = None
+    new ReplicaManager(config, metrics, time, zkClient, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
       brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager, None)
   }
 
