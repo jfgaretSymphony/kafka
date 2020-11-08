@@ -199,7 +199,7 @@ class Kip500Broker(val config: KafkaConfig,
       socketServer.startup(startProcessingRequests = false)
 
       /* start replica manager */
-      brokerToControllerChannelManager = new BrokerToControllerChannelManagerImpl(metadataCache, time, metrics, config, threadNamePrefix)
+      brokerToControllerChannelManager = new Kip500BrokerToControllerChannelManager(time, metrics, config, threadNamePrefix)
       replicaManager = createReplicaManager(isShuttingDown)
       replicaManager.startup()
       brokerToControllerChannelManager.start()
