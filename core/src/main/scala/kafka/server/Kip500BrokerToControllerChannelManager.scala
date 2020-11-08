@@ -17,17 +17,23 @@
 
 package kafka.server
 
+import java.util.Collections
 import java.util.concurrent.LinkedBlockingDeque
 
-import org.apache.kafka.clients.{KafkaClient, ManualMetadataUpdater, NetworkClient}
+import org.apache.kafka.clients.{ClientResponse, KafkaClient, ManualMetadataUpdater, NetworkClient}
+import org.apache.kafka.common.Node
+import org.apache.kafka.common.message.MetadataRequestData
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
+import org.apache.kafka.common.requests.{MetadataRequest, MetadataResponse}
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Time
 
+import scala.util.Random
+
 /**
- * This class uses the controller.connect configuration to to find and connect to the controller and uses
- * MetadataRequest to identify the active controller.
+ * This class uses the controller.connect configuration to find and connect to the controller and uses
+ * MetadataRequest to identify the active one.
  */
 class Kip500BrokerToControllerChannelManager(time: Time,
                                              metrics: Metrics,
@@ -63,23 +69,44 @@ class Kip500BrokerToControllerRequestThread(networkClient: KafkaClient,
                                             time: Time,
                                             threadName: String)
   extends BrokerToControllerRequestThread(networkClient, requestQueue, config, time, threadName) {
+  private var lastKnownGoodActiveController: Option[Node] = None
+  val random = new Random
+  val nodes = config.controllerConnectNodes.toList
 
   override def doWork(): Unit = {
     if (activeController.isDefined) {
+      info(s"Active controller is defined: ${activeController.get}")
+      lastKnownGoodActiveController = activeController
       super.doWork()
     } else {
-//      debug("Controller isn't cached, looking for local metadata changes")
-//      val controllerOpt = metadataCache.getControllerId.flatMap(metadataCache.getAliveBroker)
-//      if (controllerOpt.isDefined) {
-//        if (activeController.isEmpty || activeController.exists(_.id != controllerOpt.get.id))
-//          info(s"Recorded new controller, from now on will use broker ${controllerOpt.get.id}")
-//        activeController = Option(controllerOpt.get.node(listenerName))
-//        metadataUpdater.setNodes(metadataCache.getAliveBrokers.map(_.node(listenerName)).asJava)
-//      } else {
-//        // need to backoff to avoid tight loops
-//        debug("No controller defined in metadata cache, retrying after backoff")
-//        backoff()
-//      }
+      info("Active Controller isn't known, making metadata request to a random controller node to identify it")
+      val metadataRequestData = new MetadataRequestData()
+        .setAllowAutoTopicCreation(false)
+        .setIncludeClusterAuthorizedOperations(false)
+        .setIncludeTopicAuthorizedOperations(false)
+        .setTopics(Collections.emptyList())
+      // select a random node that is not the one we were previously using (if any)
+      val nodesToChooseFrom = nodes.filter {
+        lastKnownGoodActiveController.isEmpty || _.id() != lastKnownGoodActiveController.get.id()
+      }
+      val node = if (nodesToChooseFrom.isEmpty) {
+        nodes(0)
+      } else {
+        nodesToChooseFrom(random.nextInt(nodesToChooseFrom.length))
+      }
+      info(s"Sending metadata request data $metadataRequestData to node $node")
+      // The base class implementation assumes the active controller is always set,
+      // so we have to set it to the chosen node in order for this request to succeed.
+      activeController = Some(node) // temporary for just this request
+      requestQueue.putFirst(BrokerToControllerQueueItem(new MetadataRequest.Builder(metadataRequestData),
+        response => {
+          val metadataResponse = response.responseBody().asInstanceOf[MetadataResponse]
+          info(s"Received metadata response $metadataResponse")
+          activeController = Option(metadataResponse.controller())
+          lastKnownGoodActiveController = activeController
+        }
+      ))
+      super.doWork() // submit it!
     }
   }
 }
