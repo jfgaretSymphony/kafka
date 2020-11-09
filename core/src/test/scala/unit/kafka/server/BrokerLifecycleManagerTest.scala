@@ -21,7 +21,6 @@ import java.io.IOException
 import java.util.Properties
 import java.util.concurrent.{Executors, TimeUnit}
 
-import kafka.cluster.Broker
 import kafka.server.metadata.{BrokerMetadataEvent, BrokerMetadataListener, FenceBrokerEvent, QueuedEvent, RegisterBrokerEvent}
 import org.apache.kafka.common.KafkaException
 import kafka.server.{BrokerLifecycleManagerImpl, BrokerToControllerChannelManager, Defaults, KafkaConfig}
@@ -53,7 +52,6 @@ class BrokerLifecycleManagerTest {
   val time = new MockTime
   val brokerID = 99
   val registrationEpoch = 1
-  val broker: Broker = EasyMock.createNiceMock(classOf[Broker])
   val brokerEpochProvider: () => Long = () => 2020
   val activeControllerID = 198
   val leaseDuration = 3600 // seconds
