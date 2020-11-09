@@ -153,7 +153,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
 
     // Start
     var stateChangePromise: Promise[Unit] = null
@@ -222,7 +222,7 @@ class BrokerLifecycleManagerTest {
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
 
     // Start
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
 
     val pendingPromises = ListBuffer[Promise[Unit]]()
     pendingStateChanges foreach {
@@ -286,7 +286,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
 
     // Start
     val pendingPromises = ListBuffer[Promise[Unit]]()
@@ -364,7 +364,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
 
     // Schedule enqueues asynchronously
     val executor = Executors.newFixedThreadPool(2)
@@ -442,7 +442,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
 
     // Start
     val pendingPromises = ListBuffer[Promise[Unit]]()
@@ -527,7 +527,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
 
     // Register broker
     var promise = brokerLifecycleManager.enqueue(BrokerState.REGISTERING)
@@ -619,7 +619,7 @@ class BrokerLifecycleManagerTest {
 
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
-    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+    brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
 
     // Step 1 - Attempt broker registration, fencing and activation
     val pendingPromises = ListBuffer[Promise[Unit]]()
@@ -710,7 +710,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[AuthenticationException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
     }
 
     assert(assertion.getMessage.contains(exceptionMessage))
@@ -762,7 +762,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[UnsupportedVersionException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
     }
 
     assert(assertion.getMessage.contains(exceptionMessage))
@@ -813,7 +813,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[IOException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
     }
 
     assert(assertion.getMessage.contains("Client was disconnected"))
@@ -858,7 +858,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[IOException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
     }
 
     assert(assertion.getMessage.contains("No response found"))
@@ -909,7 +909,7 @@ class BrokerLifecycleManagerTest {
     // Init BrokerLifecycleManager
     val brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener,config, brokerToControllerChannel, time.scheduler, time, brokerID, rack, () => 1337, brokerEpochProvider)
     val assertion = intercept[DuplicateBrokerRegistrationException] {
-      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection(), false)
+      brokerLifecycleManager.start(new ListenerCollection(), new FeatureCollection())
     }
 
     assert(assertion.getMessage.contains(Errors.DUPLICATE_BROKER_REGISTRATION.message))

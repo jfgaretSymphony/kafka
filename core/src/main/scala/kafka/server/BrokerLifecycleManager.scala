@@ -47,8 +47,8 @@ import scala.concurrent.duration._
  */
 trait BrokerLifecycleManager {
 
-  // Start the heartbeat scheduler loop with either unclean shutdown recovery or broker registration as initial state
-  def start(listeners: ListenerCollection, features: FeatureCollection, recoveringFromUncleanShutdown: Boolean): Unit
+  // Start the heartbeat scheduler loop with broker registration as initial state
+  def start(listeners: ListenerCollection, features: FeatureCollection): Unit
 
   // Enqueue a heartbeat request to be sent to the active controller
   // Specify the target state for the broker
@@ -93,7 +93,7 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
   private var schedulerTask: Option[ScheduledFuture[_]] = None
 
   // Broker states - Current and Target/Next
-  private var currentState: jmetadata.BrokerState = _
+  private var currentState: jmetadata.BrokerState = jmetadata.BrokerState.REGISTERING
   private val pendingHeartbeat = new AtomicBoolean(false)
 
   // Metrics - Histogram of broker heartbeat request/response time
@@ -128,13 +128,10 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
    *         - Generic catch all for unknown/unhandled exception(s)
    *
    */
-  override def start(listeners: ListenerCollection, features: FeatureCollection, recoveringFromUncleanShutdown: Boolean): Unit = {
+  override def start(listeners: ListenerCollection, features: FeatureCollection): Unit = {
     info("Starting")
-    // FIXME: handle starting with RECOVERING_FROM_UNCLEAN_SHUTDOWN rather than REGISTERING
-
     // FIXME: Handle broker registration inconsistencies where the controller successfully registers the broker but the
     //        broker times-out/fails on the RPC. Retrying today, would lead to a DuplicateBrokerRegistrationException
-    currentState = jmetadata.BrokerState.NOT_RUNNING
 
     // Initiate broker registration
     val brokerRegistrationData = new BrokerRegistrationRequestData()
@@ -154,8 +151,7 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
               currentState = jmetadata.BrokerState.NOT_RUNNING
               promise.tryFailure(Errors.DUPLICATE_BROKER_REGISTRATION.exception())
             case Errors.NONE =>
-              // TODO: Is this the correct next state?
-              currentState = jmetadata.BrokerState.RECOVERING_FROM_UNCLEAN_SHUTDOWN
+              currentState = jmetadata.BrokerState.FENCED
               // Registration success; notify the BrokerMetadataListener
               brokerMetadataListener.put(RegisterBrokerEvent(body.brokerEpoch))
               promise.trySuccess(())
@@ -169,7 +165,6 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
           promise.tryFailure(throwable)
       }
     }
-    currentState = jmetadata.BrokerState.REGISTERING
     controllerChannelManager.sendRequest(new BrokerRegistrationRequest.Builder(brokerRegistrationData), responseHandler)
 
     // Wait for broker registration

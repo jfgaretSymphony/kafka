@@ -20,7 +20,7 @@ package kafka.server
 import java.util.Collections
 import java.util.concurrent.LinkedBlockingDeque
 
-import org.apache.kafka.clients.{ClientResponse, KafkaClient, ManualMetadataUpdater, NetworkClient}
+import org.apache.kafka.clients.{KafkaClient, ManualMetadataUpdater, NetworkClient}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.message.MetadataRequestData
 import org.apache.kafka.common.metrics.Metrics

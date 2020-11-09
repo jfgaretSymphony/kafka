@@ -84,6 +84,7 @@ class Kip500Broker(val config: KafkaConfig,
 
   var logDirFailureChannel: LogDirFailureChannel = null
   var logManager: LogManager = null
+  var cleanShutdown: Option[Boolean] = None
 
   var tokenManager: DelegationTokenManager = null
 
@@ -181,9 +182,9 @@ class Kip500Broker(val config: KafkaConfig,
 
       logDirFailureChannel = new LogDirFailureChannel(config.logDirs.size)
 
+      /* create log manager, which will perform recovery from unclean shutdown if necessary before returning */
+      logManager = LogManager(config, initialOfflineDirs, wasCleanShutdown => cleanShutdown = Some(wasCleanShutdown), kafkaScheduler, time, brokerTopicStats, logDirFailureChannel)
       /* start log manager */
-      var cleanShutdown: Boolean = false
-      logManager = LogManager(config, initialOfflineDirs, wasCleanShutdown => cleanShutdown = wasCleanShutdown, kafkaScheduler, time, brokerTopicStats, logDirFailureChannel)
       logManager.startup()
 
       metadataCache = new MetadataCache(config.brokerId)
@@ -242,7 +243,7 @@ class Kip500Broker(val config: KafkaConfig,
           .setSecurityProtocol(ep.securityProtocol.id))
       }
       val features = new FeatureCollection()
-      brokerLifecycleManager.start(listeners, features, !cleanShutdown)
+      brokerLifecycleManager.start(listeners, features)
 
       val endPoints = new ArrayBuffer[EndPoint](listeners.size())
       listeners.iterator().forEachRemaining(listener => {
@@ -453,7 +454,22 @@ class Kip500Broker(val config: KafkaConfig,
 
   def getLogManager: LogManager = logManager
 
-  override def currentState(): BrokerState = brokerLifecycleManager.brokerState
+  override def currentState(): BrokerState = {
+    if (logManager == null) {
+      // we haven't instantiated log manager yet, so we are either not running or recovering from unclean shutdown
+      if (cleanShutdown.isDefined && !cleanShutdown.get) {
+        BrokerState.RECOVERING_FROM_UNCLEAN_SHUTDOWN
+      } else {
+        BrokerState.NOT_RUNNING
+      }
+    } else if (brokerLifecycleManager == null) {
+      // we've instantiated our log manager but not yet our lifecycle manager, so we are not running
+      BrokerState.NOT_RUNNING
+    } else {
+      // we've instantiated everything, so the lifecycle manager has our current state
+      brokerLifecycleManager.brokerState
+    }
+  }
 
   def loadClusterIdBrokerIdAndOfflineDirs: (String, Int, Seq[String]) = {
     /* load metadata */
