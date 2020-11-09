@@ -69,17 +69,16 @@ class Kip500BrokerToControllerRequestThread(networkClient: KafkaClient,
                                             time: Time,
                                             threadName: String)
   extends BrokerToControllerRequestThread(networkClient, requestQueue, config, time, threadName) {
-  private var lastKnownGoodActiveController: Option[Node] = None
+  private var lastTriedActiveController: Option[Node] = None
   val random = new Random
   val nodes = config.controllerConnectNodes.toList
 
   override def doWork(): Unit = {
     if (activeController.isDefined) {
-      info(s"Active controller is defined: ${activeController.get}")
-      lastKnownGoodActiveController = activeController
+      trace(s"Active controller is defined: ${activeController.get}")
+      lastTriedActiveController = activeController
       super.doWork()
     } else {
-      info("Active Controller isn't known, making metadata request to a random controller node to identify it")
       val metadataRequestData = new MetadataRequestData()
         .setAllowAutoTopicCreation(false)
         .setIncludeClusterAuthorizedOperations(false)
@@ -87,23 +86,23 @@ class Kip500BrokerToControllerRequestThread(networkClient: KafkaClient,
         .setTopics(Collections.emptyList())
       // select a random node that is not the one we were previously using (if any)
       val nodesToChooseFrom = nodes.filter {
-        lastKnownGoodActiveController.isEmpty || _.id() != lastKnownGoodActiveController.get.id()
+        lastTriedActiveController.isEmpty || _.id() != lastTriedActiveController.get.id()
       }
       val node = if (nodesToChooseFrom.isEmpty) {
         nodes(0)
       } else {
         nodesToChooseFrom(random.nextInt(nodesToChooseFrom.length))
       }
-      info(s"Sending metadata request data $metadataRequestData to node $node")
+      info(s"Active Controller isn't known, sending metadata request data $metadataRequestData to node $node")
       // The base class implementation assumes the active controller is always set,
       // so we have to set it to the chosen node in order for this request to succeed.
       activeController = Some(node) // temporary for just this request
+      lastTriedActiveController = activeController
       requestQueue.putFirst(BrokerToControllerQueueItem(new MetadataRequest.Builder(metadataRequestData),
         response => {
           val metadataResponse = response.responseBody().asInstanceOf[MetadataResponse]
-          info(s"Received metadata response $metadataResponse")
           activeController = Option(metadataResponse.controller())
-          lastKnownGoodActiveController = activeController
+          lastTriedActiveController = activeController
         }
       ))
       super.doWork() // submit it!
