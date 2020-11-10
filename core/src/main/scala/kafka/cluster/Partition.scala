@@ -114,7 +114,7 @@ object Partition extends KafkaMetricsGroup {
         replicaManager)
     } else {
       new PartitionStateStore {
-        val noZkClientErrorMsg = "No zkClient: ISR changes  must be done via KIP-497 AlterIsrRequest (should not happen)"
+        val noZkClientErrorMsg = "No zkClient: ISR changes must be done via KIP-497 AlterIsrRequest (should not happen)"
         override def fetchTopicConfig(): Properties = {
           new Properties() // TODO: get from processed metadata log
         }

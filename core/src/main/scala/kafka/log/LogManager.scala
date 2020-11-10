@@ -327,7 +327,7 @@ class LogManager(logDirs: Seq[File],
         } else {
           // log recovery itself is being performed by `Log` class during initialization
           info(s"Attempting recovery for all logs in $logDirAbsolutePath since no clean shutdown file was found")
-          cleanShutdownFunc(false) // TODO: how to notify when recovery is complete?
+          cleanShutdownFunc(false)
         }
 
         var recoveryPoints = Map[TopicPartition, Long]()

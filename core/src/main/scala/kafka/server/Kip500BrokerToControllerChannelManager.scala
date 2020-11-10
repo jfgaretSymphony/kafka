@@ -111,10 +111,17 @@ class Kip500BrokerToControllerRequestThread(networkClient: KafkaClient,
       requestQueue.putFirst(BrokerToControllerQueueItem(new MetadataRequest.Builder(metadataRequestData),
         response => {
           val metadataResponse = response.responseBody().asInstanceOf[MetadataResponse]
-          activeController = Option(metadataResponse.controller())
-          lastTriedActiveController = activeController
-          if (!clusterIdFuture.isDone) {
-            clusterIdFuture.complete(metadataResponse.clusterId())
+          if (metadataResponse.controller().id() > 0) {
+            activeController = Option(metadataResponse.controller())
+            lastTriedActiveController = activeController
+            if (!clusterIdFuture.isDone) {
+              clusterIdFuture.complete(metadataResponse.clusterId())
+            }
+          } else {
+            // need to backoff to avoid tight loops
+            info(s"No active Controller defined; retrying after backoff")
+            activeController = None // so we try again
+            backoff()
           }
         }
       ))

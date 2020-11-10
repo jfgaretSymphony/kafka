@@ -126,7 +126,7 @@ class LegacyBroker(val config: KafkaConfig,
 
   var kafkaController: KafkaController = null
 
-  var brokerToControllerChannelManager: BrokerToControllerChannelManager = null
+  var brokerToControllerChannelManager: LegacyBrokerToControllerChannelManager = null
 
   var kafkaScheduler: KafkaScheduler = null
 

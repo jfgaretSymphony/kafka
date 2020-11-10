@@ -200,9 +200,11 @@ class Kip500Broker(val config: KafkaConfig,
       socketServer.startup(startProcessingRequests = false)
 
       /* start replica manager */
-      brokerToControllerChannelManager = new Kip500BrokerToControllerChannelManager(time, metrics, config, threadNamePrefix)
       replicaManager = createReplicaManager(isShuttingDown)
       replicaManager.startup()
+
+      /* start broker-to-controller channel manager */
+      brokerToControllerChannelManager = new Kip500BrokerToControllerChannelManager(time, metrics, config, threadNamePrefix)
       brokerToControllerChannelManager.start()
 
       /* start token manager */
@@ -244,6 +246,7 @@ class Kip500Broker(val config: KafkaConfig,
       brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener, config,
         brokerToControllerChannelManager, kafkaScheduler, time, config.brokerId, config.rack.getOrElse(""),
         brokerMetadataListener.currentMetadataOffset, brokerMetadataListener.brokerEpochNow)
+
       val listeners = new ListenerCollection()
       config.advertisedListeners.foreach { ep =>
         listeners.add(new Listener().setHost(ep.host).setName(ep.listenerName.value()).setPort(ep.port.shortValue())
@@ -261,7 +264,9 @@ class Kip500Broker(val config: KafkaConfig,
       features.iterator().forEachRemaining(feature => {
         supportedFeaturesMap(feature.name()) = new SupportedVersionRange(feature.minSupportedVersion(), feature.maxSupportedVersion())
       })
+
       val broker = Broker(config.brokerId, endPoints, config.rack, Features.supportedFeatures(supportedFeaturesMap.asJava))
+
       /* Get the authorizer and initialize it if one is specified.*/
       authorizer = config.authorizer
       authorizer.foreach(_.configure(config.originals))
@@ -368,11 +373,12 @@ class Kip500Broker(val config: KafkaConfig,
    */
   private def controlledShutdown(): Unit = {
 
-    if(config.controlledShutdownEnable) {
+    if (config.controlledShutdownEnable) {
       // We request the heartbeat to initiate a controlled shutdown.
-      info("Requesting controlled shutdown via broker heartbeat")
+      info("Controlled shutdown requested")
 
-      if (brokerLifecycleManager != null) {
+      if (brokerLifecycleManager != null) { // it's possible we haven't created it yet, in which case we do nothing
+        info("Requesting controlled shutdown via broker heartbeat")
         brokerLifecycleManager.enqueue(BrokerState.PENDING_CONTROLLED_SHUTDOWN).future.onComplete {
           case Success(_) => info("Controlled shutdown succeeded")
           case Failure(_) => warn("Proceeding to do an unclean shutdown as all the controlled shutdown attempts failed")
