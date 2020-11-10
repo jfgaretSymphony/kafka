@@ -17,7 +17,7 @@
 
 package kafka.server
 
-import java.util.concurrent.LinkedBlockingDeque
+import java.util.concurrent.{CompletableFuture, Future, LinkedBlockingDeque}
 
 import org.apache.kafka.clients.{KafkaClient, ManualMetadataUpdater, NetworkClient}
 import org.apache.kafka.common.metrics.Metrics
@@ -33,6 +33,7 @@ class LegacyBrokerToControllerChannelManager(metadataCache: kafka.server.Metadat
                                              time: Time,
                                              metrics: Metrics,
                                              config: KafkaConfig,
+                                             clusterId: String,
                                              threadNamePrefix: Option[String] = None) extends
   AbstractBrokerToControllerChannelManager(time, metrics, config, threadNamePrefix) {
   val _brokerToControllerListenerName = config.controlPlaneListenerName.getOrElse(config.interBrokerListenerName)
@@ -54,6 +55,10 @@ class LegacyBrokerToControllerChannelManager(metadataCache: kafka.server.Metadat
     new LegacyBrokerToControllerRequestThread(networkClient, manualMetadataUpdater, requestQueue, metadataCache, config,
       brokerToControllerListenerName, time, threadName)
   }
+
+  val clusterIdFuture = new CompletableFuture[String]()
+  clusterIdFuture.complete(clusterId)
+  override def clusterId(): Future[String] = clusterIdFuture
 }
 
 class LegacyBrokerToControllerRequestThread(networkClient: KafkaClient,

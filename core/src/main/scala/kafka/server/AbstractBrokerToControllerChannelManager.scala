@@ -17,7 +17,7 @@
 
 package kafka.server
 
-import java.util.concurrent.{LinkedBlockingDeque, TimeUnit}
+import java.util.concurrent.{Future, LinkedBlockingDeque, TimeUnit}
 
 import kafka.common.{InterBrokerSendThread, RequestAndCompletionHandler}
 import kafka.utils.Logging
@@ -38,6 +38,8 @@ import scala.jdk.CollectionConverters._
 trait BrokerToControllerChannelManager {
   def sendRequest(request: AbstractRequest.Builder[_ <: AbstractRequest],
                   callback: RequestCompletionHandler): Unit
+
+  def clusterId(): Future[String]
 
   def start(): Unit
 

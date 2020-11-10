@@ -97,7 +97,7 @@ class Kip500Broker(val config: KafkaConfig,
 
   var transactionCoordinator: TransactionCoordinator = null
 
-  var brokerToControllerChannelManager: BrokerToControllerChannelManager = null
+  var brokerToControllerChannelManager: Kip500BrokerToControllerChannelManager = null
 
   var kafkaScheduler: KafkaScheduler = null
 
@@ -233,6 +233,13 @@ class Kip500Broker(val config: KafkaConfig,
           config, _clusterId, metadataCache, groupCoordinator, quotaManagers, replicaManager, transactionCoordinator,
           logManager))
       brokerMetadataListener.start()
+
+      /* check local clusterId matches the controller quorum clusterId */
+      // TODO: decide if maybe this would be better to communicate in a registration request?
+      val controllerQuorumClusterId = brokerToControllerChannelManager.clusterId().get()
+      if (_clusterId != controllerQuorumClusterId) {
+        throw new IllegalStateException(s"Local clusterId ${_clusterId} does not match controller quorum clusterId $controllerQuorumClusterId")
+      }
 
       brokerLifecycleManager = new BrokerLifecycleManagerImpl(brokerMetadataListener, config,
         brokerToControllerChannelManager, kafkaScheduler, time, config.brokerId, config.rack.getOrElse(""),
@@ -374,7 +381,7 @@ class Kip500Broker(val config: KafkaConfig,
     }
   }
 
-   def shutdown(): Unit = {
+  def shutdown(): Unit = {
     if (!maybeChangeStatus(STARTED, SHUTTING_DOWN)) return
     try {
       info("shutting down")

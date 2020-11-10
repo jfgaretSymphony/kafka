@@ -18,9 +18,9 @@
 package kafka.server
 
 import java.util.Collections
-import java.util.concurrent.LinkedBlockingDeque
+import java.util.concurrent.{CompletableFuture, Future, LinkedBlockingDeque}
 
-import org.apache.kafka.clients.{KafkaClient, ManualMetadataUpdater, NetworkClient}
+import org.apache.kafka.clients.{KafkaClient, NetworkClient}
 import org.apache.kafka.common.Node
 import org.apache.kafka.common.message.MetadataRequestData
 import org.apache.kafka.common.metrics.Metrics
@@ -40,6 +40,10 @@ class Kip500BrokerToControllerChannelManager(time: Time,
                                              config: KafkaConfig,
                                              threadNamePrefix: Option[String] = None) extends
   AbstractBrokerToControllerChannelManager(time, metrics, config, threadNamePrefix) {
+
+  val clusterIdFuture = new CompletableFuture[String]()
+  override def clusterId(): Future[String] = clusterIdFuture
+
   val _brokerToControllerListenerName = new ListenerName("CONTROLLER") // TODO: where will we define this?
   val _brokerToControllerSecurityProtocol = SecurityProtocol.PLAINTEXT  // TODO: where will we define this?
   val _brokerToControllerSaslMechanism = null // TODO: where will we define this?
@@ -56,22 +60,28 @@ class Kip500BrokerToControllerChannelManager(time: Time,
   override protected def instantiateRequestThread(networkClient: NetworkClient,
                                                   brokerToControllerListenerName: ListenerName,
                                                   threadName: String) = {
-    new Kip500BrokerToControllerRequestThread(networkClient, manualMetadataUpdater, requestQueue, config,
-      brokerToControllerListenerName, time, threadName)
+    new Kip500BrokerToControllerRequestThread(networkClient, requestQueue, config, time, threadName, clusterIdFuture)
   }
+
 }
 
 class Kip500BrokerToControllerRequestThread(networkClient: KafkaClient,
-                                            metadataUpdater: ManualMetadataUpdater,
                                             requestQueue: LinkedBlockingDeque[BrokerToControllerQueueItem],
                                             config: KafkaConfig,
-                                            listenerName: ListenerName,
                                             time: Time,
-                                            threadName: String)
+                                            threadName: String,
+                                            clusterIdFuture: CompletableFuture[String])
   extends BrokerToControllerRequestThread(networkClient, requestQueue, config, time, threadName) {
   private var lastTriedActiveController: Option[Node] = None
   val random = new Random
   val nodes = config.controllerConnectNodes.toList
+
+  override def shutdown(): Unit = {
+    if (!clusterIdFuture.isDone) {
+      clusterIdFuture.cancel(true)
+    }
+    super.shutdown()
+  }
 
   override def doWork(): Unit = {
     if (activeController.isDefined) {
@@ -88,7 +98,7 @@ class Kip500BrokerToControllerRequestThread(networkClient: KafkaClient,
       val nodesToChooseFrom = nodes.filter {
         lastTriedActiveController.isEmpty || _.id() != lastTriedActiveController.get.id()
       }
-      val node = if (nodesToChooseFrom.isEmpty) {
+      val node = if(nodesToChooseFrom.isEmpty) {
         nodes(0)
       } else {
         nodesToChooseFrom(random.nextInt(nodesToChooseFrom.length))
@@ -103,6 +113,9 @@ class Kip500BrokerToControllerRequestThread(networkClient: KafkaClient,
           val metadataResponse = response.responseBody().asInstanceOf[MetadataResponse]
           activeController = Option(metadataResponse.controller())
           lastTriedActiveController = activeController
+          if (!clusterIdFuture.isDone) {
+            clusterIdFuture.complete(metadataResponse.clusterId())
+          }
         }
       ))
       super.doWork() // submit it!

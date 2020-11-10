@@ -250,7 +250,7 @@ class LegacyBroker(val config: KafkaConfig,
         socketServer.startup(startProcessingRequests = false)
 
         /* start replica manager */
-        brokerToControllerChannelManager = new LegacyBrokerToControllerChannelManager(metadataCache, time, metrics, config, threadNamePrefix)
+        brokerToControllerChannelManager = new LegacyBrokerToControllerChannelManager(metadataCache, time, metrics, config, _clusterId, threadNamePrefix)
         replicaManager = createReplicaManager(isShuttingDown)
         replicaManager.startup()
         brokerToControllerChannelManager.start()
