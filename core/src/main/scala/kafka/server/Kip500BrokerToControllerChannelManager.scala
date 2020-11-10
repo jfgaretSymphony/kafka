@@ -26,7 +26,6 @@ import org.apache.kafka.common.message.MetadataRequestData
 import org.apache.kafka.common.metrics.Metrics
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.requests.{MetadataRequest, MetadataResponse}
-import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.utils.Time
 
 import scala.util.Random
@@ -44,8 +43,13 @@ class Kip500BrokerToControllerChannelManager(time: Time,
   val clusterIdFuture = new CompletableFuture[String]()
   override def clusterId(): Future[String] = clusterIdFuture
 
-  val _brokerToControllerListenerName = new ListenerName("CONTROLLER") // TODO: where will we define this?
-  val _brokerToControllerSecurityProtocol = SecurityProtocol.PLAINTEXT  // TODO: where will we define this?
+  val _brokerToControllerListenerName = new ListenerName(config.controllerListenerNames.head)
+  if (_brokerToControllerListenerName.value().isEmpty) {
+    throw new IllegalStateException(s"Must set at least one value for ${KafkaConfig.ControllerListenerNamesProp}")
+  }
+  val _brokerToControllerSecurityProtocol =
+    config.listenerSecurityProtocolMap.get(_brokerToControllerListenerName).getOrElse(
+      throw new IllegalStateException(s"No mapping in ${KafkaConfig.ListenerSecurityProtocolMapProp} for ${_brokerToControllerListenerName.value()}"))
   val _brokerToControllerSaslMechanism = null // TODO: where will we define this?
 
   val _requestThread = newRequestThread
