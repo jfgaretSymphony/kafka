@@ -89,8 +89,9 @@ final case class RegisterBrokerEvent(brokerEpoch: Long) extends BrokerMetadataEv
  * current message batch, if any, otherwise they receive it immediately.
  *
  * @param brokerEpoch the broker epoch that was fenced
+ * @param fenced true or false if the broker has been fenced or unfenced, respectively
  */
-final case class FenceBrokerEvent(brokerEpoch: Long) extends BrokerMetadataEvent
+final case class FenceBrokerEvent(brokerEpoch: Long, fenced: Boolean) extends BrokerMetadataEvent
 
 /**
  * Used to wakeup the polling thread in order to shutdown.
@@ -123,6 +124,9 @@ class BrokerMetadataListener(
   // return the broker epoch or -1 if it is not yet set
   def brokerEpochNow(): Long = _brokerEpochFuture.getNow(-1)
 
+  private val _initiallyCaughtUpFuture = new CompletableFuture[Unit]()
+  def initiallyCaughtUpFuture: Future[Unit] = _initiallyCaughtUpFuture
+
   private val queue = new LinkedBlockingQueue[QueuedEvent]()
   private val thread = new BrokerMetadataEventThread(
     s"${BrokerMetadataListener.ThreadNamePrefix}${config.brokerId}${BrokerMetadataListener.ThreadNameSuffix}")
@@ -154,6 +158,7 @@ class BrokerMetadataListener(
       thread.initiateShutdown()
       put(ShutdownEvent) // wake up the thread in case it is blocked on queue.take()
       _brokerEpochFuture.cancel(true)
+      _initiallyCaughtUpFuture.cancel(true)
       thread.awaitShutdown()
     } finally {
       removeMetric(BrokerMetadataListener.EventQueueTimeMetricName)
@@ -178,13 +183,6 @@ class BrokerMetadataListener(
     logIdent = s"[BrokerMetadataEventThread] "
 
     private def process(event: BrokerMetadataEvent): Unit = {
-      event match {
-        case registerBrokerEvent: RegisterBrokerEvent =>
-          if (!_brokerEpochFuture.isDone) {
-            _brokerEpochFuture.complete(registerBrokerEvent.brokerEpoch)
-          }
-        case _ =>
-      }
       processors.foreach(_.process(event))
     }
 
@@ -210,14 +208,19 @@ class BrokerMetadataListener(
             throw new IllegalStateException(s"Non-monotonic offset found in $logEvent. Our " +
               s"current offset is ${_currentMetadataOffset}.")
           }
-
           process(logEvent)
           _currentMetadataOffset = logEvent.lastOffset
-
-        case event =>
-          process(event)
+        case fenceBrokerEvent: FenceBrokerEvent =>
+          if (!fenceBrokerEvent.fenced && !_initiallyCaughtUpFuture.isDone) {
+            _initiallyCaughtUpFuture.complete(())
+          }
+          process(fenceBrokerEvent)
+        case registerBrokerEvent: RegisterBrokerEvent =>
+          if (!_brokerEpochFuture.isDone) {
+            _brokerEpochFuture.complete(registerBrokerEvent.brokerEpoch)
+          }
+          process(registerBrokerEvent)
       }
     }
   }
-
 }

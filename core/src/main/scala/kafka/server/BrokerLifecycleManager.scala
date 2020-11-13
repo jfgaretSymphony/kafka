@@ -276,7 +276,7 @@ class BrokerLifecycleManagerImpl(val brokerMetadataListener: BrokerMetadataListe
           error(s"Last successful heartbeat was $timeSinceLastHeartbeat ms ago")
           // Fence ourselves; notify the BrokerMetadataListener
           currentState = jmetadata.BrokerState.FENCED
-          brokerMetadataListener.put(FenceBrokerEvent(brokerEpoch()))
+          brokerMetadataListener.put(FenceBrokerEvent(brokerEpoch(), true))
           // FIXME: What is the preferred action here? Do we wait for an external actor queue a state change
           //       request?
           pendingHeartbeat.compareAndSet(true, false)

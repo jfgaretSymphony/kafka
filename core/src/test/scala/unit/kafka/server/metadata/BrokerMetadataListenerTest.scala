@@ -24,7 +24,7 @@ import kafka.utils.TestUtils
 import org.apache.kafka.common.metadata.BrokerRecord
 import org.apache.kafka.common.protocol.ApiMessage
 import org.apache.kafka.common.utils.MockTime
-import org.junit.Assert.{assertEquals, assertTrue, fail}
+import org.junit.Assert.{assertEquals, assertFalse, assertTrue, fail}
 import org.junit.{After, Test}
 import org.mockito.Mockito.mock
 import org.scalatest.Assertions.intercept
@@ -97,15 +97,33 @@ class BrokerMetadataListenerTest {
     val listener = new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(), List(processor))
     assertEquals(expectedInitialMetadataOffset, listener.currentMetadataOffset())
 
-    val msg0 = RegisterBrokerEvent(1)
-    val msg1 = FenceBrokerEvent(1)
+    assertFalse(listener.initiallyCaughtUpFuture.isDone)
+    assertFalse(listener.brokerEpochFuture().isDone)
+    val brokerEpoch = 1
+    val msg0 = RegisterBrokerEvent(brokerEpoch)
+    val msg1 = FenceBrokerEvent(1, true)
     listener.put(msg0)
     listener.put(msg1)
     listener.drain()
     assertEquals(List(msg0, msg1), processor.processed.toList)
+    assertFalse(listener.initiallyCaughtUpFuture.isDone)
+    assertTrue(listener.brokerEpochFuture().isDone)
+    assertEquals(brokerEpoch, listener.brokerEpochFuture().get())
 
     // offset should not be updated
     assertEquals(expectedInitialMetadataOffset, listener.currentMetadataOffset())
+
+    processor.processed.clear()
+    val msg2 = FenceBrokerEvent(1, false)
+    listener.put(msg2)
+    listener.drain()
+    assertEquals(List(msg2), processor.processed.toList)
+
+    // offset should not be updated
+    assertEquals(expectedInitialMetadataOffset, listener.currentMetadataOffset())
+    // but we should now be "caught up"
+    assertTrue(listener.initiallyCaughtUpFuture.isDone)
+
   }
 
   @Test
@@ -140,23 +158,34 @@ class BrokerMetadataListenerTest {
   }
 
   @Test
+  def testFuturesCancelledOnClose(): Unit = {
+    val listener = new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(),
+      List(new MockMetadataProcessor))
+    listener.start()
+    assertFalse(listener.initiallyCaughtUpFuture.isDone)
+    assertFalse(listener.brokerEpochFuture().isDone)
+
+    listener.close()
+    assertTrue(listener.initiallyCaughtUpFuture.isCancelled)
+    assertTrue(listener.brokerEpochFuture().isCancelled)
+  }
+
+  @Test
   def testOutOfBandEventIsProcessed(): Unit = {
     val processor = new MockMetadataProcessor
     val listener = new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(), List(processor))
     val logEvent1 = MetadataLogEvent(List(mock(classOf[ApiMessage])).asJava, 1)
     val logEvent2 = MetadataLogEvent(List(mock(classOf[ApiMessage])).asJava, 2)
     val registerEvent = RegisterBrokerEvent(1)
-    val fenceEvent = FenceBrokerEvent(1)
+    val fenceEvent = FenceBrokerEvent(1, true)
 
     // add the out-of-band messages after the batches
-    listener.put(logEvent1)
-    listener.put(logEvent2)
-    listener.put(registerEvent)
-    listener.put(fenceEvent)
+    val expected = List(logEvent1, logEvent2, registerEvent, fenceEvent)
+    expected.foreach { listener.put(_) }
     listener.drain()
 
     // make sure events are handled in order
-    assertEquals(List(logEvent1, logEvent2, registerEvent, fenceEvent), processor.processed.toList)
+    assertEquals(expected, processor.processed.toList)
   }
 
   @Test
