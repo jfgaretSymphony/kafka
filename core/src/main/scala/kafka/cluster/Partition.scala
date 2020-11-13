@@ -113,10 +113,17 @@ object Partition extends KafkaMetricsGroup {
         replicaManager.zkClient.get,
         replicaManager)
     } else {
+      if (replicaManager.brokerMetadataListenerFuture.isEmpty) {
+        throw new IllegalSaslStateException("Must supply broker metadata listener future to replica manager in KIP-500 mode")
+      }
+      val brokerMetadataListenerFuture = replicaManager.brokerMetadataListenerFuture.get
       new PartitionStateStore {
         val noZkClientErrorMsg = "No zkClient: ISR changes must be done via KIP-497 AlterIsrRequest (should not happen)"
         override def fetchTopicConfig(): Properties = {
-          new Properties() // TODO: get from processed metadata log
+          // wait for the broker metadata listener to be available
+          val brokerMetadataListener = brokerMetadataListenerFuture.get()
+          // wait for it to initially catch up on the metadata log if necessary
+          brokerMetadataListener.initiallyCaughtUpFuture.get().topicConfigProperties(topicPartition.topic())
         }
 
         override def shrinkIsr(controllerEpoch: Int, leaderAndIsr: LeaderAndIsr): Option[Int] = {

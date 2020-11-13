@@ -18,6 +18,7 @@
 package kafka.server.metadata
 
 import java.util
+import java.util.Properties
 import java.util.concurrent.{CompletableFuture, Future, LinkedBlockingQueue, TimeUnit}
 
 import kafka.coordinator.group.GroupCoordinator
@@ -108,15 +109,43 @@ trait BrokerMetadataProcessor {
   def process(event: BrokerMetadataEvent): Unit
 }
 
+trait ConfigRepository {
+  def topicConfigProperties(topicName: String): Properties = {
+    configProperties(new ConfigResource(ConfigResource.Type.TOPIC, topicName))
+  }
+
+  def brokerConfigProperties(brokerId: Int): Properties = {
+    configProperties(new ConfigResource(ConfigResource.Type.BROKER, brokerId.toString))
+  }
+
+  def configProperties(configResource: ConfigResource): Properties
+}
+
 class BrokerMetadataListener(
   config: KafkaConfig,
   time: Time,
   processors: List[BrokerMetadataProcessor],
   eventQueueTimeoutMs: Long = BrokerMetadataListener.DefaultEventQueueTimeoutMs
-) extends MetaLogManager.Listener with KafkaMetricsGroup  {
+) extends MetaLogManager.Listener with KafkaMetricsGroup with ConfigRepository {
 
   if (processors.isEmpty) {
     throw new IllegalArgumentException(s"Empty processors list!")
+  }
+
+  private val configRepositoryProcessor: Option[ConfigRepository] = {
+    val configRepositoryProcessors = processors.filter(_.isInstanceOf[ConfigRepository])
+    if (configRepositoryProcessors.isEmpty) {
+      warn("No config repository processors")
+      None
+    } else if (configRepositoryProcessors.size > 1) {
+      throw new IllegalArgumentException(s"Cannot provide multiple config repository processors: $configRepositoryProcessors")
+    } else {
+      Some(configRepositoryProcessors.head.asInstanceOf[ConfigRepository])
+    }
+  }
+
+  def configProperties(configResource: ConfigResource): Properties = {
+    configRepositoryProcessor.getOrElse(throw new IllegalStateException("No config metadata processors")).configProperties(configResource)
   }
 
   private val _brokerEpochFuture: CompletableFuture[Long] = new CompletableFuture[Long]()
@@ -124,8 +153,8 @@ class BrokerMetadataListener(
   // return the broker epoch or -1 if it is not yet set
   def brokerEpochNow(): Long = _brokerEpochFuture.getNow(-1)
 
-  private val _initiallyCaughtUpFuture = new CompletableFuture[Unit]()
-  def initiallyCaughtUpFuture: Future[Unit] = _initiallyCaughtUpFuture
+  private val _initiallyCaughtUpFuture = new CompletableFuture[BrokerMetadataListener]()
+  def initiallyCaughtUpFuture: Future[BrokerMetadataListener] = _initiallyCaughtUpFuture
 
   private val queue = new LinkedBlockingQueue[QueuedEvent]()
   private val thread = new BrokerMetadataEventThread(
@@ -212,7 +241,7 @@ class BrokerMetadataListener(
           _currentMetadataOffset = logEvent.lastOffset
         case fenceBrokerEvent: FenceBrokerEvent =>
           if (!fenceBrokerEvent.fenced && !_initiallyCaughtUpFuture.isDone) {
-            _initiallyCaughtUpFuture.complete(())
+            _initiallyCaughtUpFuture.complete(BrokerMetadataListener.this)
           }
           process(fenceBrokerEvent)
         case registerBrokerEvent: RegisterBrokerEvent =>

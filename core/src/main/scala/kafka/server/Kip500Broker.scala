@@ -33,12 +33,13 @@ import kafka.metrics.{KafkaMetricsReporter, KafkaYammerMetrics}
 import kafka.network.SocketServer
 import kafka.security.CredentialProvider
 import kafka.server.KafkaBroker.{metricsPrefix, notifyClusterListeners}
-import kafka.server.metadata.BrokerMetadataListener
+import kafka.server.metadata.{BrokerMetadataListener}
 import kafka.utils.{CoreUtils, KafkaScheduler, Mx4jLoader}
 import kafka.zk.KafkaZkClient
 import org.apache.kafka.common.feature.{Features, SupportedVersionRange}
 import org.apache.kafka.common.message.BrokerRegistrationRequestData.{FeatureCollection, Listener, ListenerCollection}
 import org.apache.kafka.common.{Endpoint, KafkaException}
+import org.apache.kafka.common.internals.Topic
 import org.apache.kafka.common.metrics.{JmxReporter, Metrics, MetricsReporter}
 import org.apache.kafka.common.network.ListenerName
 import org.apache.kafka.common.security.auth.SecurityProtocol
@@ -117,6 +118,7 @@ class Kip500Broker(val config: KafkaConfig,
   def clusterId(): String = _clusterId
 
   var brokerMetadataListener: BrokerMetadataListener = null
+  val _brokerMetadataListenerFuture: CompletableFuture[BrokerMetadataListener] = new CompletableFuture[BrokerMetadataListener]()
 
   var brokerLifecycleManager: BrokerLifecycleManager = null
 
@@ -234,6 +236,7 @@ class Kip500Broker(val config: KafkaConfig,
         BrokerMetadataListener.defaultProcessors(
           config, _clusterId, metadataCache, groupCoordinator, quotaManagers, replicaManager, transactionCoordinator,
           logManager))
+      _brokerMetadataListenerFuture.complete(brokerMetadataListener)
       brokerMetadataListener.start()
 
       /* check local clusterId matches the controller quorum clusterId */
@@ -331,7 +334,7 @@ class Kip500Broker(val config: KafkaConfig,
         fatal(s"Exhausted all demo/temporary producerIds as the next one will has extend past the block size of $maxProducerIdsPerBrokerEpoch")
         throw new KafkaException("Have exhausted all demo/temporary producerIds.")
       }
-      brokerMetadataListener.brokerEpochFuture().get() * maxProducerIdsPerBrokerEpoch + currentOffset
+      _brokerMetadataListenerFuture.get.brokerEpochFuture().get() * maxProducerIdsPerBrokerEpoch + currentOffset
     }
   }
 
@@ -341,11 +344,11 @@ class Kip500Broker(val config: KafkaConfig,
 
   protected def createReplicaManager(isShuttingDown: AtomicBoolean): ReplicaManager = {
     val alterIsrManager = new AlterIsrManagerImpl(brokerToControllerChannelManager, kafkaScheduler,
-      time, config.brokerId, () => brokerMetadataListener.brokerEpochFuture().get())
+      time, config.brokerId, () => _brokerMetadataListenerFuture.get.brokerEpochFuture().get())
     // explicitly declare to eliminate spotbugs error in Scala 2.12
     val zkClient: Option[KafkaZkClient] = None
     new ReplicaManager(config, metrics, time, zkClient, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
-      brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager, None)
+      brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager, None, Some(_brokerMetadataListenerFuture))
   }
 
   /**
@@ -353,9 +356,11 @@ class Kip500Broker(val config: KafkaConfig,
    * If the topic does not exist, the configured partition count is returned.
    */
   def getGroupMetadataTopicPartitionCount(): Int = {
-    // TODO: don't return a result until the broker catches up; for now, just give the configured partition count
-    // brokerMetadataListener.getTopicPartitionCount(Topic.GROUP_METADATA_TOPIC_NAME).getOrElse(config.offsetsTopicPartitions)
-    config.offsetsTopicPartitions
+    // wait until we are caught up on the metadata log if necessary
+    val listener = _brokerMetadataListenerFuture.get()
+    listener.initiallyCaughtUpFuture.get()
+    // now return the number of partitions if the topic exists, otherwise the default
+    metadataCache.numPartitions(Topic.GROUP_METADATA_TOPIC_NAME).getOrElse(config.offsetsTopicPartitions)
   }
 
   /**
@@ -363,9 +368,11 @@ class Kip500Broker(val config: KafkaConfig,
    * If the topic does not exist, the default partition count is returned.
    */
   def getTransactionTopicPartitionCount(): Int = {
-    // TODO: don't return a result until the broker catches up; for now, just give the configured partition count
-    // brokerMetadataListener.getTopicPartitionCount(Topic.TRANSACTION_STATE_TOPIC_NAME).getOrElse(config.transactionTopicPartitions)
-    config.transactionTopicPartitions
+    // wait until we are caught up on the metadata log if necessary
+    val listener = _brokerMetadataListenerFuture.get()
+    listener.initiallyCaughtUpFuture.get()
+    // now return the number of partitions if the topic exists, otherwise the default
+    metadataCache.numPartitions(Topic.TRANSACTION_STATE_TOPIC_NAME).getOrElse(config.transactionTopicPartitions)
   }
 
   /**
@@ -410,6 +417,14 @@ class Kip500Broker(val config: KafkaConfig,
       if (controlPlaneRequestProcessor != null)
         CoreUtils.swallow(controlPlaneRequestProcessor.close(), this)
       CoreUtils.swallow(authorizer.foreach(_.close()), this)
+
+      if (brokerLifecycleManager != null)
+        CoreUtils.swallow(brokerLifecycleManager.stop(), this)
+
+      if (brokerMetadataListener !=  null) {
+        CoreUtils.swallow(brokerMetadataListener.close(), this)
+      }
+      _brokerMetadataListenerFuture.cancel(true)
 
       if (transactionCoordinator != null)
         CoreUtils.swallow(transactionCoordinator.shutdown(), this)

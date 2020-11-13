@@ -356,7 +356,7 @@ class LegacyBroker(val config: KafkaConfig,
     val alterIsrManager = new AlterIsrManagerImpl(brokerToControllerChannelManager, kafkaScheduler,
       time, config.brokerId, () => kafkaController.brokerEpoch)
     new ReplicaManager(config, metrics, time, zkClient, kafkaScheduler, logManager, isShuttingDown, quotaManagers,
-      brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager)
+      brokerTopicStats, metadataCache, logDirFailureChannel, alterIsrManager, None)
   }
 
   private def initZkClient(time: Time): Unit = {

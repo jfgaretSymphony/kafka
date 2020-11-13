@@ -21,12 +21,13 @@ import com.yammer.metrics.core.{Gauge, Histogram, MetricName}
 import kafka.metrics.KafkaYammerMetrics
 import kafka.server.KafkaConfig
 import kafka.utils.TestUtils
+import org.apache.kafka.common.config.ConfigResource
 import org.apache.kafka.common.metadata.BrokerRecord
 import org.apache.kafka.common.protocol.ApiMessage
 import org.apache.kafka.common.utils.MockTime
 import org.junit.Assert.{assertEquals, assertFalse, assertTrue, fail}
 import org.junit.{After, Test}
-import org.mockito.Mockito.mock
+import org.mockito.Mockito.{mock, times, verify}
 import org.scalatest.Assertions.intercept
 
 import scala.collection.mutable
@@ -61,6 +62,32 @@ class BrokerMetadataListenerTest {
   @Test(expected = classOf[IllegalArgumentException])
   def testEmptyBrokerMetadataProcessors(): Unit = {
     new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(), List.empty)
+  }
+
+  @Test(expected = classOf[IllegalStateException])
+  def testNoConfigMetadataProcessors(): Unit = {
+    val listener = new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(), List(mock(classOf[BrokerMetadataProcessor])))
+    listener.brokerConfigProperties(1)
+  }
+
+  @Test(expected = classOf[IllegalArgumentException])
+  def testMultipleConfigMetadataProcessors(): Unit = {
+    trait ConfigRepositoryProcessor extends BrokerMetadataProcessor with ConfigRepository
+    new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(),
+      List(mock(classOf[ConfigRepositoryProcessor]), mock(classOf[ConfigRepositoryProcessor])))
+  }
+
+  @Test
+  def testConfigMetadataProcessor(): Unit = {
+    trait ConfigRepositoryProcessor extends BrokerMetadataProcessor with ConfigRepository
+    val configProcessor = mock(classOf[ConfigRepositoryProcessor])
+    val listener = new BrokerMetadataListener(mock(classOf[KafkaConfig]), new MockTime(), List(configProcessor))
+    val brokerId = 0
+    listener.brokerConfigProperties(brokerId)
+    val topicName = "foo"
+    listener.topicConfigProperties(topicName)
+    verify(configProcessor, times(1)).configProperties(new ConfigResource(ConfigResource.Type.BROKER, brokerId.toString))
+    verify(configProcessor, times(1)).configProperties(new ConfigResource(ConfigResource.Type.TOPIC, topicName))
   }
 
   @Test
